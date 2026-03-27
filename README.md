@@ -11,7 +11,8 @@ browse &nbsp;·&nbsp; search &nbsp;·&nbsp; resume
 [![requires fzf](https://img.shields.io/badge/requires-fzf-orange)](https://github.com/junegunn/fzf)
 
 An interactive terminal browser for your [Claude Code](https://claude.ai/code) sessions —
-fuzzy search, rich previews, one-key resume, and auto-generated AI summaries.
+fuzzy search, rich previews, one-key resume, and auto-generated AI summaries.  Just a tool to find the session you're looking for, renders them all from your local session storage, launches it with `claude --resume [SESSION_ID]`
+
 
 ![Demo](demo.gif)
 
