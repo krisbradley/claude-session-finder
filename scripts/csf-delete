@@ -16,6 +16,10 @@ if not session_id:
     sys.exit(1)
 
 # Remove from history.jsonl
+if not HISTORY_FILE.exists():
+    print("No history file found")
+    sys.exit(1)
+
 kept = []
 removed = 0
 with open(HISTORY_FILE) as f:

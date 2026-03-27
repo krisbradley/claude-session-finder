@@ -7,6 +7,7 @@ Interactive browser for Claude Code sessions with summaries
 import argparse
 import json
 import os
+import shutil
 import sys
 import subprocess
 from pathlib import Path
@@ -553,9 +554,9 @@ def select_session_fzf(grouped_sessions: Dict[str, List[Dict]]) -> Optional[str]
         else:
             time_color = '\033[2;37m' # dim white = older
 
-        # Star prefix gets a gold color, emoji titles stay as-is
-        if session_title.startswith('★'):
-            title_str = f'\033[93m★\033[0m {session_title[2:]}'
+        # Color the ★ gold on AI-summarized sessions
+        if '★' in session_title:
+            title_str = session_title.replace('★', '\033[93m★\033[0m', 1)
         else:
             title_str = session_title
 
@@ -570,8 +571,6 @@ def select_session_fzf(grouped_sessions: Dict[str, List[Dict]]) -> Optional[str]
             f"{dim}│{reset} "
             f"{title_str}"
         )
-        all_messages = all_messages.replace('\n', ' ').replace('\r', ' ')
-
         # TSV row: display \t session_id \t project \t full_content
         fzf_input.append(f"{display_line}\t{session_id}\t{project}\t{all_messages}")
 
@@ -591,10 +590,16 @@ def select_session_fzf(grouped_sessions: Dict[str, List[Dict]]) -> Optional[str]
         '\t'.join(line.split('\t')[:3]) for line in fzf_input
     )
 
-    search_script = Path.home() / '.local/bin/csf-search'
-    preview_script = Path.home() / '.local/bin/csf-preview'
-    delete_script = Path.home() / '.local/bin/csf-delete'
-    export_script = Path.home() / '.local/bin/csf-export'
+    def find_script(name):
+        found = shutil.which(name)
+        if not found:
+            raise FileNotFoundError(f"{name} not found in PATH")
+        return found
+
+    search_script = find_script('csf-search')
+    preview_script = find_script('csf-preview')
+    delete_script = find_script('csf-delete')
+    export_script = find_script('csf-export')
     try:
         result = subprocess.run(
             [
@@ -647,8 +652,6 @@ def select_session_fzf(grouped_sessions: Dict[str, List[Dict]]) -> Optional[str]
         print(f"{YELLOW}Error running fzf: {e}{RESET}")
         return None
 
-    return None
-
 
 def open_session(session_id: str, entries: List[Dict]):
     """Open a Claude session"""
@@ -663,7 +666,7 @@ def open_session(session_id: str, entries: List[Dict]):
         subprocess.run(['claude', '--resume', session_id])
     except Exception as e:
         print(f"{YELLOW}Error opening session: {e}{RESET}")
-        print(f"Try running: cd {project} && claude code --resume {session_id}")
+        print(f"Try running: cd {project} && claude --resume {session_id}")
 
 
 def filter_by_date(grouped: Dict[str, List[Dict]], days: int) -> Dict[str, List[Dict]]:

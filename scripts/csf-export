@@ -19,6 +19,10 @@ if not session_id:
     sys.exit(1)
 
 # Load entries
+if not HISTORY_FILE.exists():
+    print("No history file found")
+    sys.exit(1)
+
 sessions = defaultdict(list)
 with open(HISTORY_FILE) as f:
     for line in f:
