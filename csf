@@ -560,7 +560,8 @@ def select_session_fzf(grouped_sessions: Dict[str, List[Dict]]) -> Optional[str]
                 '--pointer', '▶',
                 '--marker', '✓',
                 '--delimiter', '\t',
-                '--with-nth', '2',  # Display only field 2, but search all fields
+                '--with-nth', '2',   # Display only field 2
+                '--nth', '1,2,3',    # But search all fields (session_id, title, full message content)
                 '--preview', f'{preview_script} {{1}}',
                 '--preview-window', 'right:55%:wrap',
                 '--ansi',
