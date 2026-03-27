@@ -591,7 +591,7 @@ def select_session_fzf(grouped_sessions: Dict[str, List[Dict]]) -> Optional[str]
                 '--height', '80%',
                 '--reverse',
                 '--border',
-                '--border-label', ' 󰙨 Claude Session Finder ',
+                '--border-label', '\033[1;38;2;203;166;247m ✦ \033[38;2;180;190;254mClaude Session Finder\033[1;38;2;203;166;247m ✦ \033[0m',
                 '--header', ' ↑↓ navigate   enter open   esc cancel   type to search all content',
                 '--prompt', '  ',
                 '--pointer', '❯',
