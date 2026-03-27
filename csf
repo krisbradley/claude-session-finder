@@ -534,7 +534,33 @@ def select_session_fzf(grouped_sessions: Dict[str, List[Dict]]) -> Optional[str]
         if not session_title or len(session_title.strip()) < 15:
             continue
 
-        display_line = f"{time_ago:>8} │ {msg_count:>3} msgs │ {session_title}"
+        # Color the time based on recency
+        if 'just now' in time_ago or 'm ago' in time_ago:
+            time_color = '\033[92m'   # bright green  = recent
+        elif 'h ago' in time_ago:
+            time_color = '\033[32m'   # green
+        elif 'd ago' in time_ago and int(time_ago.split('d')[0].strip()) <= 3:
+            time_color = '\033[33m'   # yellow
+        else:
+            time_color = '\033[2;37m' # dim white = older
+
+        # Star prefix gets a gold color, emoji titles stay as-is
+        if session_title.startswith('★'):
+            title_str = f'\033[93m★\033[0m {session_title[2:]}'
+        else:
+            title_str = session_title
+
+        reset = '\033[0m'
+        dim = '\033[2m'
+        cyan = '\033[36m'
+
+        display_line = (
+            f"{time_color}{time_ago:>8}{reset} "
+            f"{dim}│{reset} "
+            f"{cyan}{msg_count:>3} msgs{reset} "
+            f"{dim}│{reset} "
+            f"{title_str}"
+        )
         all_messages = all_messages.replace('\n', ' ').replace('\r', ' ')
 
         # TSV row: display \t session_id \t full_content (for search)
@@ -565,19 +591,31 @@ def select_session_fzf(grouped_sessions: Dict[str, List[Dict]]) -> Optional[str]
                 '--height', '80%',
                 '--reverse',
                 '--border',
-                '--border-label', '│ Claude Sessions - Full Text Search │',
-                '--header', 'Type to search full session content • ↑/↓: navigate • Enter: open • ESC: cancel',
-                '--prompt', '🔍 Search: ',
-                '--pointer', '▶',
-                '--marker', '✓',
+                '--border-label', ' 󰙨 Claude Session Finder ',
+                '--header', ' ↑↓ navigate   enter open   esc cancel   type to search all content',
+                '--prompt', '  ',
+                '--pointer', '❯',
+                '--marker', '●',
                 '--delimiter', '\t',
-                '--with-nth', '1',          # Display only the title column
-                '--disabled',               # Disable fzf built-in search
+                '--with-nth', '1',
+                '--disabled',
                 '--bind', f'change:reload({search_script} {{q}})',
                 '--preview', f'{preview_script} {{2}}',
-                '--preview-window', 'right:55%:wrap',
+                '--preview-window', 'right:55%:wrap:border-left',
                 '--ansi',
-                '--color', 'prompt:cyan,pointer:green,marker:yellow,header:dim'
+                '--color', (
+                    'fg:#cdd6f4,fg+:#cdd6f4,'
+                    'bg:#1e1e2e,bg+:#313244,'
+                    'hl:#89b4fa,hl+:#89dceb,'
+                    'border:#6c7086,'
+                    'label:#89b4fa,'
+                    'prompt:#cba6f7,'
+                    'pointer:#f38ba8,'
+                    'marker:#a6e3a1,'
+                    'header:#6c7086,'
+                    'info:#f9e2af,'
+                    'spinner:#f5e0dc'
+                )
             ],
             input=display_input,
             capture_output=True,
