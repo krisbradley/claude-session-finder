@@ -1,0 +1,24 @@
+#!/usr/bin/env python3
+"""Full-text search helper for csf fzf integration.
+Reads ~/.claude/csf-sessions.tsv and filters by query against full message content.
+Usage: csf-search <query>
+"""
+
+import sys
+from pathlib import Path
+
+TSV = Path.home() / '.claude' / 'csf-sessions.tsv'
+
+query = ' '.join(sys.argv[1:]).strip().lower()
+
+try:
+    with open(TSV) as f:
+        for line in f:
+            parts = line.rstrip('\n').split('\t', 2)
+            if len(parts) < 3:
+                continue
+            display, session_id, content = parts
+            if not query or query in content.lower():
+                print(f"{display}\t{session_id}")
+except Exception as e:
+    sys.exit(1)

@@ -512,12 +512,11 @@ def select_session_fzf(grouped_sessions: Dict[str, List[Dict]]) -> Optional[str]
         if not session_title or len(session_title.strip()) < 15:
             continue
 
-        # Each line: display portion + hidden session_id marker + full message content
-        # fzf searches the whole line; we parse session_id back out after selection
-        # Format: "{display}  :::{session_id}:::  {all messages}"
         display_line = f"{time_ago:>8} │ {msg_count:>3} msgs │ {session_title}"
         all_messages = all_messages.replace('\n', ' ').replace('\r', ' ')
-        fzf_input.append(f"{display_line}  :::{session_id}:::  {all_messages}")
+
+        # TSV row: display \t session_id \t full_content (for search)
+        fzf_input.append(f"{display_line}\t{session_id}\t{all_messages}")
 
     # Check if we have any sessions to display
     if not fzf_input:
@@ -525,6 +524,17 @@ def select_session_fzf(grouped_sessions: Dict[str, List[Dict]]) -> Optional[str]
         print(f"All sessions have been filtered out (commands only, too short, etc.)")
         return None
 
+    # Write TSV cache for the search helper: display \t session_id \t full_content
+    tsv_file = Path.home() / '.claude' / 'csf-sessions.tsv'
+    with open(tsv_file, 'w') as f:
+        f.write('\n'.join(fzf_input))
+
+    # Initial display input: just display \t session_id (no full content shown)
+    display_input = '\n'.join(
+        '\t'.join(line.split('\t')[:2]) for line in fzf_input
+    )
+
+    search_script = Path.home() / '.local/bin/csf-search'
     preview_script = Path.home() / '.local/bin/csf-preview'
     try:
         result = subprocess.run(
@@ -534,26 +544,27 @@ def select_session_fzf(grouped_sessions: Dict[str, List[Dict]]) -> Optional[str]
                 '--reverse',
                 '--border',
                 '--border-label', '│ Claude Sessions - Full Text Search │',
-                '--header', 'Type to search full session content • ↑/↓: navigate • Tab: preview • Enter: open • ESC: cancel',
+                '--header', 'Type to search full session content • ↑/↓: navigate • Enter: open • ESC: cancel',
                 '--prompt', '🔍 Search: ',
                 '--pointer', '▶',
                 '--marker', '✓',
-                '--preview', f'{preview_script} $(echo {{}} | grep -oP ":::(.+?):::" | head -1 | tr -d ":")',
+                '--delimiter', '\t',
+                '--with-nth', '1',          # Display only the title column
+                '--disabled',               # Disable fzf built-in search
+                '--bind', f'change:reload({search_script} {{q}})',
+                '--preview', f'{preview_script} {{2}}',
                 '--preview-window', 'right:55%:wrap',
                 '--ansi',
                 '--color', 'prompt:cyan,pointer:green,marker:yellow,header:dim'
             ],
-            input='\n'.join(fzf_input),
+            input=display_input,
             capture_output=True,
             text=True
         )
 
         if result.returncode == 0 and result.stdout.strip():
-            import re
-            match = re.search(r':::(.+?):::', result.stdout)
-            if match:
-                return match.group(1)
-            return None
+            parts = result.stdout.strip().split('\t')
+            return parts[1] if len(parts) > 1 else None
     except FileNotFoundError:
         print(f"{YELLOW}fzf not found. Install with: brew install fzf{RESET}")
         return None

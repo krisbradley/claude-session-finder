@@ -1,11 +1,11 @@
 #!/bin/bash
 set -e
 
-DEST="$HOME/.local/bin/csf-preview"
+BASE="https://raw.githubusercontent.com/kristopherbradley/claude-session-finder/master/scripts"
 mkdir -p "$HOME/.local/bin"
 
-curl -fsSL "https://raw.githubusercontent.com/kristopherbradley/claude-session-finder/master/scripts/csf-preview" \
-  -o "$DEST"
-chmod +x "$DEST"
-
-echo "Installed csf-preview to $DEST"
+for script in csf-preview csf-search; do
+  curl -fsSL "$BASE/$script" -o "$HOME/.local/bin/$script"
+  chmod +x "$HOME/.local/bin/$script"
+  echo "Installed $script to $HOME/.local/bin/$script"
+done
