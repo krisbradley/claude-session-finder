@@ -2,6 +2,8 @@
 """Full-text search helper for csf fzf integration.
 Reads ~/.claude/csf-sessions.tsv and filters by query against full message content.
 Usage: csf-search <query>
+TSV format: display \t session_id \t project \t full_content
+Returns:    display \t session_id \t project
 """
 
 import sys
@@ -14,11 +16,11 @@ query = ' '.join(sys.argv[1:]).strip().lower()
 try:
     with open(TSV) as f:
         for line in f:
-            parts = line.rstrip('\n').split('\t', 2)
-            if len(parts) < 3:
+            parts = line.rstrip('\n').split('\t', 3)
+            if len(parts) < 4:
                 continue
-            display, session_id, content = parts
+            display, session_id, project, content = parts
             if not query or query in content.lower():
-                print(f"{display}\t{session_id}")
-except Exception as e:
+                print(f"{display}\t{session_id}\t{project}")
+except Exception:
     sys.exit(1)

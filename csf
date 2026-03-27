@@ -4,12 +4,13 @@ Claude Code Session Manager
 Interactive browser for Claude Code sessions with summaries
 """
 
+import argparse
 import json
 import os
 import sys
 import subprocess
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 from collections import defaultdict
 from typing import List, Dict, Optional
 
@@ -571,8 +572,8 @@ def select_session_fzf(grouped_sessions: Dict[str, List[Dict]]) -> Optional[str]
         )
         all_messages = all_messages.replace('\n', ' ').replace('\r', ' ')
 
-        # TSV row: display \t session_id \t full_content (for search)
-        fzf_input.append(f"{display_line}\t{session_id}\t{all_messages}")
+        # TSV row: display \t session_id \t project \t full_content
+        fzf_input.append(f"{display_line}\t{session_id}\t{project}\t{all_messages}")
 
     # Check if we have any sessions to display
     if not fzf_input:
@@ -585,13 +586,15 @@ def select_session_fzf(grouped_sessions: Dict[str, List[Dict]]) -> Optional[str]
     with open(tsv_file, 'w') as f:
         f.write('\n'.join(fzf_input))
 
-    # Initial display input: just display \t session_id (no full content shown)
+    # Initial display input: display \t session_id \t project
     display_input = '\n'.join(
-        '\t'.join(line.split('\t')[:2]) for line in fzf_input
+        '\t'.join(line.split('\t')[:3]) for line in fzf_input
     )
 
     search_script = Path.home() / '.local/bin/csf-search'
     preview_script = Path.home() / '.local/bin/csf-preview'
+    delete_script = Path.home() / '.local/bin/csf-delete'
+    export_script = Path.home() / '.local/bin/csf-export'
     try:
         result = subprocess.run(
             [
@@ -600,7 +603,7 @@ def select_session_fzf(grouped_sessions: Dict[str, List[Dict]]) -> Optional[str]
                 '--reverse',
                 '--border',
                 '--border-label', '\033[1;38;2;187;154;247m ✦ \033[38;2;192;202;245mClaude Session Finder\033[1;38;2;187;154;247m ✦ \033[0m',
-                '--header', ' ↑↓ navigate   enter open   esc cancel   type to search all content',
+                '--header', ' ↑↓ navigate   enter open   ctrl-d delete   ctrl-e export   ctrl-y copy id   ctrl-p open project',
                 '--prompt', '  ',
                 '--pointer', '❯',
                 '--marker', '●',
@@ -608,6 +611,10 @@ def select_session_fzf(grouped_sessions: Dict[str, List[Dict]]) -> Optional[str]
                 '--with-nth', '1',
                 '--disabled',
                 '--bind', f'change:reload({search_script} {{q}})',
+                '--bind', f'ctrl-d:execute({delete_script} {{2}})+reload({search_script} {{q}})',
+                '--bind', f'ctrl-y:execute(echo -n {{2}} | pbcopy)',
+                '--bind', f'ctrl-e:execute({export_script} {{2}})',
+                '--bind', f'ctrl-p:execute(open {{3}})',
                 '--preview', f'{preview_script} {{2}}',
                 '--preview-window', 'right:55%:wrap:border-left',
                 '--ansi',
@@ -659,13 +666,161 @@ def open_session(session_id: str, entries: List[Dict]):
         print(f"Try running: cd {project} && claude code --resume {session_id}")
 
 
+def filter_by_date(grouped: Dict[str, List[Dict]], days: int) -> Dict[str, List[Dict]]:
+    """Keep only sessions with activity within the last `days` days (0 = today)."""
+    cutoff = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    if days > 0:
+        cutoff -= timedelta(days=days - 1)
+    return {
+        sid: entries for sid, entries in grouped.items()
+        if parse_timestamp(max(e['timestamp'] for e in entries)) >= cutoff
+    }
+
+
+def show_stats(grouped: Dict[str, List[Dict]]):
+    """Print a dashboard of session statistics."""
+    all_entries = [e for entries in grouped.values() for e in entries]
+    total_sessions = len(grouped)
+    total_messages = len(all_entries)
+
+    # Sessions per day (last 7 days)
+    today = datetime.now().date()
+    day_counts = defaultdict(int)
+    for sid, entries in grouped.items():
+        latest = parse_timestamp(max(e['timestamp'] for e in entries))
+        day_counts[latest.date()] += 1
+
+    # Top projects
+    project_counts = defaultdict(int)
+    for sid, entries in grouped.items():
+        project = max(entries, key=lambda e: e['timestamp']).get('project', 'Unknown')
+        try:
+            p = Path(project)
+            if p.is_relative_to(Path.home()):
+                project = f"~/{p.relative_to(Path.home())}"
+        except Exception:
+            pass
+        project_counts[project] += 1
+
+    # Emoji type breakdown
+    summaries = load_summaries()
+    type_counts = defaultdict(int)
+    for sid, entries in grouped.items():
+        if sid in summaries:
+            text = ' '.join(e.get('display', '') for e in entries)
+        else:
+            text = ' '.join(e.get('display', '') for e in entries[:5])
+        emoji = pick_emoji(text)
+        type_counts[emoji] += 1
+
+    w = 54
+    bar_max = 20
+
+    def bar(n, total, width=12):
+        filled = round(n / total * width) if total else 0
+        return f"{'█' * filled}{'░' * (width - filled)}"
+
+    print(f"\n{BOLD}{CYAN}{'━' * w}{RESET}")
+    print(f"{BOLD}{CYAN}  Claude Session Stats{RESET}")
+    print(f"{BOLD}{CYAN}{'━' * w}{RESET}\n")
+    print(f"  {BOLD}Total sessions:{RESET}  {GREEN}{total_sessions}{RESET}     {BOLD}Total messages:{RESET}  {GREEN}{total_messages}{RESET}\n")
+
+    print(f"  {BOLD}Activity — last 7 days:{RESET}")
+    for i in range(6, -1, -1):
+        day = today - timedelta(days=i)
+        count = day_counts.get(day, 0)
+        label = "today" if i == 0 else day.strftime("%a %b %-d")
+        filled = round(count / max(max(day_counts.values(), default=1), 1) * bar_max)
+        b = f"{GREEN}{'█' * filled}{DIM}{'░' * (bar_max - filled)}{RESET}"
+        print(f"    {DIM}{label:>12}{RESET}  {b}  {count}")
+    print()
+
+    print(f"  {BOLD}Top projects:{RESET}")
+    for project, count in sorted(project_counts.items(), key=lambda x: -x[1])[:5]:
+        b = bar(count, total_sessions)
+        print(f"    {BLUE}{project:<30}{RESET}  {b}  {count}")
+    print()
+
+    print(f"  {BOLD}Session types:{RESET}")
+    for emoji, count in sorted(type_counts.items(), key=lambda x: -x[1]):
+        b = bar(count, total_sessions)
+        print(f"    {emoji}  {b}  {count}")
+    print(f"\n{BOLD}{CYAN}{'━' * w}{RESET}\n")
+
+
+def select_by_project(grouped: Dict[str, List[Dict]]):
+    """Two-step fzf: pick a project, then pick a session within it."""
+    project_map = defaultdict(list)
+    for sid, entries in grouped.items():
+        latest = max(entries, key=lambda e: e['timestamp'])
+        project = latest.get('project', 'Unknown')
+        try:
+            p = Path(project)
+            if p.is_relative_to(Path.home()):
+                project = f"~/{p.relative_to(Path.home())}"
+        except Exception:
+            pass
+        project_map[project].append((sid, entries))
+
+    # Build project list for fzf
+    project_lines = []
+    for project, sessions in sorted(project_map.items(), key=lambda x: -len(x[1])):
+        latest_ts = max(
+            max(e['timestamp'] for e in entries)
+            for _, entries in sessions
+        )
+        time_ago = format_time_ago(parse_timestamp(latest_ts))
+        project_lines.append(f"{len(sessions):>3} sessions  {GREEN}{time_ago:>8}{RESET}  {BLUE}{project}{RESET}")
+
+    result = subprocess.run(
+        ['fzf', '--ansi', '--reverse', '--border',
+         '--border-label', '\033[1;38;2;187;154;247m ✦ \033[38;2;192;202;245mChoose a Project\033[1;38;2;187;154;247m ✦ \033[0m',
+         '--prompt', '  ', '--pointer', '❯',
+         '--color', 'fg:#c0caf5,bg:#1a1b26,bg+:#292e42,hl:#7aa2f7,border:#3b4261,label:#7aa2f7,prompt:#bb9af7,pointer:#f7768e,marker:#9ece6a,info:#e0af68'],
+        input='\n'.join(project_lines),
+        capture_output=True, text=True
+    )
+
+    if result.returncode != 0 or not result.stdout.strip():
+        return
+
+    # Extract project name (last token after ANSI reset)
+    import re
+    selected_line = result.stdout.strip()
+    clean = re.sub(r'\033\[[0-9;]*m', '', selected_line)
+    # project name is the last field
+    project_name = clean.split()[-1]
+
+    # Find matching project (fuzzy match on cleaned name)
+    matched = None
+    for project, sessions in project_map.items():
+        if project.endswith(project_name) or project_name in project:
+            matched = (project, sessions)
+            break
+
+    if not matched:
+        return
+
+    _, sessions = matched
+    filtered = {sid: entries for sid, entries in sessions}
+    selected_id = select_session_fzf(filtered)
+    if selected_id and selected_id in grouped:
+        open_session(selected_id, grouped[selected_id])
+
+
 def main():
+    parser = argparse.ArgumentParser(description='Browse and resume Claude Code sessions')
+    parser.add_argument('--stats', action='store_true', help='Show session statistics')
+    parser.add_argument('--projects', action='store_true', help='Browse sessions by project')
+    parser.add_argument('--today', action='store_true', help='Show only today\'s sessions')
+    parser.add_argument('--week', action='store_true', help='Show only this week\'s sessions')
+    args = parser.parse_args()
+
     if not HISTORY_FILE.exists():
         print(f"{YELLOW}No Claude Code history found.{RESET}")
         print(f"Run Claude Code first to create sessions.")
         sys.exit(1)
 
-    # Load and group sessions
     sessions = load_sessions()
     if not sessions:
         print(f"{YELLOW}No sessions found in history.{RESET}")
@@ -673,25 +828,39 @@ def main():
 
     grouped = group_sessions_by_id(sessions)
 
-    # Check if fzf is available
+    if args.stats:
+        show_stats(grouped)
+        return
+
+    if args.today:
+        grouped = filter_by_date(grouped, days=0)
+        if not grouped:
+            print(f"{YELLOW}No sessions today.{RESET}")
+            return
+
+    elif args.week:
+        grouped = filter_by_date(grouped, days=7)
+        if not grouped:
+            print(f"{YELLOW}No sessions this week.{RESET}")
+            return
+
+    if args.projects:
+        select_by_project(grouped)
+        return
+
     fzf_available = subprocess.run(['which', 'fzf'], capture_output=True).returncode == 0
 
     if fzf_available:
-        # Use fzf for selection
         selected_id = select_session_fzf(grouped)
         if selected_id and selected_id in grouped:
             open_session(selected_id, grouped[selected_id])
     else:
-        # Fallback: just print sessions
         print(f"{YELLOW}Tip: Install fzf for interactive selection: brew install fzf{RESET}\n")
         sorted_sessions = print_sessions(grouped)
-
-        # Prompt for selection
         try:
             choice = input(f"{BOLD}Enter session number (or 'q' to quit): {RESET}")
             if choice.lower() == 'q':
                 sys.exit(0)
-
             idx = int(choice) - 1
             if 0 <= idx < len(sorted_sessions):
                 session_id, entries = sorted_sessions[idx]

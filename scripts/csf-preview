@@ -8,7 +8,16 @@ from datetime import datetime
 
 CLAUDE_DIR = Path.home() / '.claude'
 HISTORY_FILE = CLAUDE_DIR / 'history.jsonl'
+SUMMARIES_FILE = CLAUDE_DIR / 'csf-summaries.json'
 DEBUG_DIR = CLAUDE_DIR / 'debug'
+
+
+def load_summary(session_id):
+    try:
+        data = json.loads(SUMMARIES_FILE.read_text())
+        return data.get(session_id, {}).get('summary')
+    except Exception:
+        return None
 
 
 def parse_timestamp(ts: int) -> datetime:
@@ -70,9 +79,23 @@ def main():
     project = entries[-1].get('project', 'Unknown')
 
     # Print header
+    summary = load_summary(session_id)
     print("=" * 70)
-    print(f"SESSION: {session_id}")
-    print("=" * 70)
+    if summary:
+        # Wrap summary to fit width
+        words = summary.split()
+        line, wrapped = [], []
+        for word in words:
+            if sum(len(w) + 1 for w in line) + len(word) > 68:
+                wrapped.append(' '.join(line))
+                line = [word]
+            else:
+                line.append(word)
+        if line:
+            wrapped.append(' '.join(line))
+        for l in wrapped:
+            print(f"  {l}")
+        print("=" * 70)
     print(f"📁 Project:   {project}")
     print(f"📅 Started:   {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"⏱️  Duration:  {format_duration(duration)}")
