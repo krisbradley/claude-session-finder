@@ -1,11 +1,12 @@
-# Claude Session Finder
+# Claude Sessions Finder
 
 Interactive browser for your Claude Code sessions. Lists sessions with auto-generated titles and lets you fuzzy-search and resume them.
 
 ## Install
 
 ```bash
-brew install kristopherbradley/tap/claude-sessions
+brew tap kristopherbradley/tap
+brew install claude-sessions-finder
 ```
 
 ## Requirements
@@ -21,7 +22,7 @@ brew install fzf
 ## Usage
 
 ```bash
-claude-sessions
+csf
 ```
 
 - Type to search — matches session titles, project paths, and full message content
@@ -37,10 +38,10 @@ Falls back to a numbered list with manual selection if `fzf` is not installed.
 The preview pane requires a helper script. After installing, create it:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/kristopherbradley/claude-session-finder/master/scripts/install-preview.sh | bash
+curl -fsSL https://raw.githubusercontent.com/kristopherbradley/claude-sessions-finder/master/scripts/install-preview.sh | bash
 ```
 
-Or manually place `scripts/claude-sessions-preview` at `~/.local/bin/claude-sessions-preview` and make it executable.
+Or manually place `scripts/csf-preview` at `~/.local/bin/csf-preview` and make it executable.
 
 ## How It Works
 

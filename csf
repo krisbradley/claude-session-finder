@@ -546,7 +546,7 @@ def select_session_fzf(grouped_sessions: Dict[str, List[Dict]]) -> Optional[str]
     # Format: session_id \t display_line \t searchable_content
     # --with-nth 2 displays only the second field (display_line)
     # But fzf searches through ALL fields including full message content
-    preview_script = Path.home() / '.local/bin/claude-sessions-preview'
+    preview_script = Path.home() / '.local/bin/csf-preview'
     try:
         result = subprocess.run(
             [
