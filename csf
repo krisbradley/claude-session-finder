@@ -509,21 +509,15 @@ def select_session_fzf(grouped_sessions: Dict[str, List[Dict]]) -> Optional[str]
         except (ValueError, AttributeError):
             pass
 
-        # Format: session_id \t display_line \t searchable_content
-        # fzf will search through all fields but only display field 2
-        display_line = f"{time_ago:>8} │ {msg_count:>3} msgs │ {session_title}"
-        searchable_content = f"{session_title} {project} {all_messages}"
-        searchable_content = searchable_content.replace('\t', ' ').replace('\n', ' ').replace('\r', ' ')
-
-        # ULTRA-STRICT validation - prevent ANY questionable entries
-        if not display_line or len(display_line.strip()) < 30:
-            continue
-        if not searchable_content or len(searchable_content.strip()) < 20:
-            continue
         if not session_title or len(session_title.strip()) < 15:
             continue
 
-        fzf_input.append(f"{session_id}\t{display_line}\t{searchable_content}")
+        # Each line: display portion + hidden session_id marker + full message content
+        # fzf searches the whole line; we parse session_id back out after selection
+        # Format: "{display}  :::{session_id}:::  {all messages}"
+        display_line = f"{time_ago:>8} │ {msg_count:>3} msgs │ {session_title}"
+        all_messages = all_messages.replace('\n', ' ').replace('\r', ' ')
+        fzf_input.append(f"{display_line}  :::{session_id}:::  {all_messages}")
 
     # Check if we have any sessions to display
     if not fzf_input:
@@ -531,21 +525,6 @@ def select_session_fzf(grouped_sessions: Dict[str, List[Dict]]) -> Optional[str]
         print(f"All sessions have been filtered out (commands only, too short, etc.)")
         return None
 
-    # Debug: Save fzf input to file for inspection
-    debug_file = Path.home() / '.claude' / 'sessions-debug.txt'
-    with open(debug_file, 'w') as f:
-        f.write(f"Total sessions: {len(fzf_input)}\n")
-        f.write("=" * 80 + "\n")
-        for line in fzf_input:
-            parts = line.split('\t')
-            if len(parts) >= 2:
-                f.write(f"ID: {parts[0][:8]}... | Display: {parts[1]}\n")
-        f.write("=" * 80 + "\n")
-
-    # Run fzf with full-text search
-    # Format: session_id \t display_line \t searchable_content
-    # --with-nth 2 displays only the second field (display_line)
-    # But fzf searches through ALL fields including full message content
     preview_script = Path.home() / '.local/bin/csf-preview'
     try:
         result = subprocess.run(
@@ -559,10 +538,7 @@ def select_session_fzf(grouped_sessions: Dict[str, List[Dict]]) -> Optional[str]
                 '--prompt', '🔍 Search: ',
                 '--pointer', '▶',
                 '--marker', '✓',
-                '--delimiter', '\t',
-                '--with-nth', '2',   # Display only field 2
-                '--nth', '1,2,3',    # But search all fields (session_id, title, full message content)
-                '--preview', f'{preview_script} {{1}}',
+                '--preview', f'{preview_script} $(echo {{}} | grep -oP ":::(.+?):::" | head -1 | tr -d ":")',
                 '--preview-window', 'right:55%:wrap',
                 '--ansi',
                 '--color', 'prompt:cyan,pointer:green,marker:yellow,header:dim'
@@ -573,8 +549,11 @@ def select_session_fzf(grouped_sessions: Dict[str, List[Dict]]) -> Optional[str]
         )
 
         if result.returncode == 0 and result.stdout.strip():
-            session_id = result.stdout.strip().split('\t')[0]
-            return session_id
+            import re
+            match = re.search(r':::(.+?):::', result.stdout)
+            if match:
+                return match.group(1)
+            return None
     except FileNotFoundError:
         print(f"{YELLOW}fzf not found. Install with: brew install fzf{RESET}")
         return None
