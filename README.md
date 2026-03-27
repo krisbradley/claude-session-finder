@@ -1,16 +1,13 @@
 <div align="center">
 
 ```
- ██████╗  ███████╗  ███████╗
-██╔════╝  ██╔════╝  ██╔════╝
-██║       ███████╗  █████╗
-██║       ╚════██║  ██╔══╝
-╚██████╗  ███████║  ██║
- ╚═════╝  ╚══════╝  ╚═╝
+   ___  ____  ____
+  / __)(  __)(  __)
+ ( (__  ) _)  ) _)
+  \___)(__)  (__)
 
-   Claude Session Finder
-────────────────────────────
-browse  ·  search  ·  resume
+  Claude Session Finder
+  browse  .  search  .  resume
 ```
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
