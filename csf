@@ -26,6 +26,18 @@ MAGENTA = '\033[35m'
 CLAUDE_DIR = Path.home() / '.claude'
 HISTORY_FILE = CLAUDE_DIR / 'history.jsonl'
 DEBUG_DIR = CLAUDE_DIR / 'debug'
+SUMMARIES_FILE = CLAUDE_DIR / 'csf-summaries.json'
+
+
+def load_summaries() -> Dict[str, str]:
+    """Load cached AI summaries keyed by session_id."""
+    if not SUMMARIES_FILE.exists():
+        return {}
+    try:
+        data = json.loads(SUMMARIES_FILE.read_text())
+        return {sid: v['summary'] for sid, v in data.items() if v.get('summary')}
+    except Exception:
+        return {}
 
 
 def parse_timestamp(ts: int) -> datetime:
@@ -408,6 +420,8 @@ def group_sessions_by_id(sessions: List[Dict], min_messages: int = 2) -> Dict[st
 
 def print_sessions(grouped_sessions: Dict[str, List[Dict]]):
     """Print formatted list of sessions"""
+    summaries = load_summaries()
+
     # Sort by most recent first
     sorted_sessions = sorted(
         grouped_sessions.items(),
@@ -433,8 +447,11 @@ def print_sessions(grouped_sessions: Dict[str, List[Dict]]):
         except (ValueError, AttributeError):
             pass
 
-        # Generate intelligent session title
-        session_title = generate_session_title(entries)
+        # Use AI summary if available, otherwise fall back to keyword title
+        if session_id in summaries:
+            session_title = f"★ {summaries[session_id]}"
+        else:
+            session_title = generate_session_title(entries)
 
         # Skip sessions with no meaningful title
         if not session_title:
@@ -463,6 +480,8 @@ def print_sessions(grouped_sessions: Dict[str, List[Dict]]):
 
 def select_session_fzf(grouped_sessions: Dict[str, List[Dict]]) -> Optional[str]:
     """Use fzf for interactive session selection"""
+    summaries = load_summaries()
+
     # Sort by most recent first
     sorted_sessions = sorted(
         grouped_sessions.items(),
@@ -477,8 +496,11 @@ def select_session_fzf(grouped_sessions: Dict[str, List[Dict]]) -> Optional[str]
         timestamp = parse_timestamp(latest['timestamp'])
         time_ago = format_time_ago(timestamp)
 
-        # Generate intelligent session title
-        session_title = generate_session_title(entries)
+        # Use AI summary if available, otherwise fall back to keyword title
+        if session_id in summaries:
+            session_title = f"★ {summaries[session_id]}"
+        else:
+            session_title = generate_session_title(entries)
 
         # Skip sessions with no meaningful title
         if not session_title:

@@ -1,0 +1,175 @@
+#!/usr/bin/env python3
+"""
+Generate AI summaries for Claude Code sessions using a local HuggingFace model.
+Summaries are cached to ~/.claude/csf-summaries.json.
+
+Usage:
+    csf-summarize              # Summarize all new sessions
+    csf-summarize --all        # Regenerate all summaries (ignore cache)
+    csf-summarize --model <id> # Use a different HuggingFace model
+"""
+
+import json
+import sys
+import argparse
+from pathlib import Path
+from datetime import datetime
+from collections import defaultdict
+
+CLAUDE_DIR = Path.home() / '.claude'
+HISTORY_FILE = CLAUDE_DIR / 'history.jsonl'
+SUMMARIES_FILE = CLAUDE_DIR / 'csf-summaries.json'
+
+DEFAULT_MODEL = 'philschmid/bart-large-cnn-samsum'
+MAX_INPUT_CHARS = 1500  # Keep well within model token limits
+MIN_MESSAGES = 3        # Skip sessions too short to summarize meaningfully
+
+
+def load_sessions():
+    sessions = defaultdict(list)
+    with open(HISTORY_FILE) as f:
+        for line in f:
+            try:
+                entry = json.loads(line.strip())
+                sid = entry.get('sessionId')
+                if sid:
+                    sessions[sid].append(entry)
+            except Exception:
+                pass
+    return sessions
+
+
+def build_input_text(entries):
+    """Build a dialogue-style text from session messages."""
+    entries = sorted(entries, key=lambda x: x['timestamp'])
+    messages = [e.get('display', '').strip() for e in entries if e.get('display', '').strip()]
+    messages = [m for m in messages if len(m) > 3]
+
+    if len(messages) < MIN_MESSAGES:
+        return None
+
+    # Format as a conversation (samsum model expects dialogue format)
+    lines = []
+    for i, msg in enumerate(messages):
+        speaker = 'User' if i % 2 == 0 else 'Claude'
+        lines.append(f"{speaker}: {msg}")
+
+    text = '\n'.join(lines)
+    return text[:MAX_INPUT_CHARS]
+
+
+def load_cache():
+    if SUMMARIES_FILE.exists():
+        try:
+            return json.loads(SUMMARIES_FILE.read_text())
+        except Exception:
+            pass
+    return {}
+
+
+def save_cache(cache):
+    SUMMARIES_FILE.write_text(json.dumps(cache, indent=2))
+
+
+def content_hash(entries):
+    """Simple hash to detect if session content has changed."""
+    msgs = ''.join(e.get('display', '') for e in entries)
+    return str(hash(msgs) & 0xFFFFFFFF)
+
+
+def main():
+    parser = argparse.ArgumentParser(description='Generate AI summaries for Claude sessions')
+    parser.add_argument('--all', action='store_true', help='Regenerate all summaries')
+    parser.add_argument('--model', default=DEFAULT_MODEL, help='HuggingFace model ID')
+    args = parser.parse_args()
+
+    # Check transformers is available
+    try:
+        from transformers import pipeline
+    except ImportError:
+        print("Error: transformers is not installed.")
+        print("Install with: pip install transformers torch")
+        sys.exit(1)
+
+    if not HISTORY_FILE.exists():
+        print("No Claude Code history found.")
+        sys.exit(1)
+
+    print(f"Loading sessions...")
+    sessions = load_sessions()
+    cache = {} if args.all else load_cache()
+
+    # Find sessions that need summarizing
+    to_summarize = []
+    for session_id, entries in sessions.items():
+        if len(entries) < MIN_MESSAGES:
+            continue
+        chash = content_hash(entries)
+        cached = cache.get(session_id, {})
+        if not args.all and cached.get('hash') == chash and cached.get('summary'):
+            continue  # Already up to date
+        text = build_input_text(entries)
+        if text:
+            to_summarize.append((session_id, entries, text, chash))
+
+    if not to_summarize:
+        print(f"All {len(sessions)} sessions already summarized.")
+        return
+
+    print(f"Loading model: {args.model}")
+    print("(First run will download the model, ~1GB)")
+    try:
+        summarizer = pipeline(
+            'summarization',
+            model=args.model,
+            device=-1,  # CPU; change to 0 for GPU
+        )
+    except Exception as e:
+        print(f"Error loading model: {e}")
+        sys.exit(1)
+
+    print(f"\nSummarizing {len(to_summarize)} sessions...\n")
+
+    for i, (session_id, entries, text, chash) in enumerate(to_summarize, 1):
+        latest = max(entries, key=lambda x: x['timestamp'])
+        project = latest.get('project', '')
+        try:
+            p = Path(project)
+            if p.is_relative_to(Path.home()):
+                project = str(p.relative_to(Path.home()))
+        except Exception:
+            pass
+
+        print(f"[{i}/{len(to_summarize)}] {session_id[:8]}... ({project})")
+
+        try:
+            result = summarizer(
+                text,
+                max_length=60,
+                min_length=10,
+                do_sample=False,
+                truncation=True,
+            )
+            summary = result[0]['summary_text'].strip()
+            # Collapse whitespace / newlines the model sometimes emits
+            summary = ' '.join(summary.split())
+            print(f"  → {summary}\n")
+
+            cache[session_id] = {
+                'summary': summary,
+                'hash': chash,
+                'generated_at': datetime.now().isoformat(),
+                'model': args.model,
+            }
+            # Save incrementally so progress isn't lost on interrupt
+            save_cache(cache)
+
+        except Exception as e:
+            print(f"  ✗ Failed: {e}\n")
+
+    total_cached = sum(1 for v in cache.values() if v.get('summary'))
+    print(f"Done. {total_cached} summaries cached in {SUMMARIES_FILE}")
+
+
+if __name__ == '__main__':
+    main()
