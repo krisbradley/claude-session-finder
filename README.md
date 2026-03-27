@@ -1,14 +1,10 @@
 <div align="center">
 
-```
-   ___  ____  ____
-  / __)(  __)(  __)
- ( (__  ) _)  ) _)
-  \___)(__)  (__)
+# `csf`
 
-  Claude Session Finder
-  browse  .  search  .  resume
-```
+### Claude Session Finder
+
+browse &nbsp;·&nbsp; search &nbsp;·&nbsp; resume
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![macOS](https://img.shields.io/badge/macOS-only-lightgrey?logo=apple)](README.md)
@@ -39,7 +35,7 @@ fuzzy search, rich previews, one-key resume, and auto-generated AI summaries.
 ## Install
 
 ```bash
-brew tap kristopherbradley/tap
+brew tap krisbradley/tap
 brew install claude-session-finder
 ```
 
