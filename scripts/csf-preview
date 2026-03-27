@@ -1,65 +1,136 @@
 #!/usr/bin/env python3
+"""Preview script for claude-sessions fzf integration"""
+
 import sys
 import json
 from pathlib import Path
 from datetime import datetime
-from collections import defaultdict
-
-session_id = sys.argv[1] if len(sys.argv) > 1 else ""
 
 CLAUDE_DIR = Path.home() / '.claude'
 HISTORY_FILE = CLAUDE_DIR / 'history.jsonl'
+DEBUG_DIR = CLAUDE_DIR / 'debug'
 
-sessions = defaultdict(list)
-with open(HISTORY_FILE) as f:
-    for line in f:
-        try:
-            entry = json.loads(line)
-            sessions[entry.get('sessionId', '')].append(entry)
-        except Exception:
-            pass
 
-entries = sessions.get(session_id, [])
-if not entries:
-    print(f"Session {session_id} not found")
-    sys.exit(0)
+def parse_timestamp(ts: int) -> datetime:
+    return datetime.fromtimestamp(ts / 1000)
 
-latest = max(entries, key=lambda x: x['timestamp'])
-oldest = min(entries, key=lambda x: x['timestamp'])
-start = datetime.fromtimestamp(oldest['timestamp'] / 1000)
-end = datetime.fromtimestamp(latest['timestamp'] / 1000)
-duration = end - start
 
-total_s = int(duration.total_seconds())
-if total_s < 60:
-    dur_str = f"{total_s}s"
-elif total_s < 3600:
-    dur_str = f"{total_s // 60}m {total_s % 60}s"
-else:
-    dur_str = f"{total_s // 3600}h {(total_s % 3600) // 60}m"
+def format_duration(delta) -> str:
+    total_seconds = int(delta.total_seconds())
+    if total_seconds < 60:
+        return f"{total_seconds}s"
+    elif total_seconds < 3600:
+        return f"{total_seconds // 60}m {total_seconds % 60}s"
+    elif total_seconds < 86400:
+        hours = total_seconds // 3600
+        minutes = (total_seconds % 3600) // 60
+        return f"{hours}h {minutes}m"
+    else:
+        days = total_seconds // 86400
+        hours = (total_seconds % 86400) // 3600
+        return f"{days}d {hours}h"
 
-project = latest.get('project', 'Unknown')
-try:
-    p = Path(project)
-    if p.is_relative_to(Path.home()):
-        project = f"~/{p.relative_to(Path.home())}"
-except Exception:
-    pass
 
-print("=" * 55)
-print(f"Session:   {session_id[:16]}...")
-print(f"Project:   {project}")
-print(f"Started:   {start.strftime('%Y-%m-%d %H:%M')}")
-print(f"Duration:  {dur_str}")
-print(f"Messages:  {len(entries)}")
-print("=" * 55)
-print()
-print("MESSAGES:")
-print("-" * 55)
-for e in entries[:20]:
-    display = e.get('display', '').strip()
-    if display:
-        if len(display) > 120:
-            display = display[:117] + "..."
-        print(f"  {display}")
+def main():
+    if len(sys.argv) < 2:
+        print("Usage: csf-preview <session-id>")
+        sys.exit(1)
+
+    session_id = sys.argv[1]
+
+    # Load session entries from history
+    entries = []
+    try:
+        with open(HISTORY_FILE, 'r') as f:
+            for line in f:
+                try:
+                    entry = json.loads(line.strip())
+                    if entry.get('sessionId') == session_id:
+                        entries.append(entry)
+                except:
+                    pass
+    except:
+        pass
+
+    if not entries:
+        print("=" * 70)
+        print(f"SESSION: {session_id}")
+        print("=" * 70)
+        print("❌ No session data found")
+        sys.exit(0)
+
+    # Sort by timestamp
+    entries.sort(key=lambda x: x['timestamp'])
+
+    # Session metadata
+    msg_count = len(entries)
+    start_time = parse_timestamp(entries[0]['timestamp'])
+    end_time = parse_timestamp(entries[-1]['timestamp'])
+    duration = end_time - start_time
+    project = entries[-1].get('project', 'Unknown')
+
+    # Print header
+    print("=" * 70)
+    print(f"SESSION: {session_id}")
+    print("=" * 70)
+    print(f"📁 Project:   {project}")
+    print(f"📅 Started:   {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"⏱️  Duration:  {format_duration(duration)}")
+    print(f"💬 Messages:  {msg_count}")
+    print("=" * 70)
+    print()
+
+    # Show conversation
+    print("💭 CONVERSATION:")
+    print("-" * 70)
+    print()
+
+    # Display up to 15 messages with nice formatting
+    for i, entry in enumerate(entries[:15], 1):
+        msg = entry.get('display', '').strip()
+        if not msg:
+            continue
+
+        # Timestamp
+        ts = parse_timestamp(entry['timestamp'])
+        time_str = ts.strftime('%H:%M:%S')
+
+        # Truncate long messages
+        if len(msg) > 250:
+            msg = msg[:247] + "..."
+
+        # Format with numbering and timestamp
+        print(f"{i:2d}. [{time_str}]")
+        print(f"    {msg}")
         print()
+
+    if len(entries) > 15:
+        print(f"... and {len(entries) - 15} more messages")
+        print()
+
+    # Show last message if there are many
+    if len(entries) > 15:
+        last = entries[-1]
+        last_msg = last.get('display', '').strip()
+        if last_msg:
+            last_ts = parse_timestamp(last['timestamp'])
+            print("-" * 70)
+            print(f"LATEST MESSAGE [{last_ts.strftime('%H:%M:%S')}]:")
+            if len(last_msg) > 250:
+                last_msg = last_msg[:247] + "..."
+            print(f"    {last_msg}")
+            print()
+
+    print("=" * 70)
+
+    # Check if transcript exists
+    debug_file = DEBUG_DIR / f"{session_id}.txt"
+    if debug_file.exists():
+        size_kb = debug_file.stat().st_size / 1024
+        print(f"📄 Transcript: {size_kb:.1f} KB available")
+    else:
+        print("⚠️  No detailed transcript available")
+
+
+if __name__ == '__main__':
+    main()
