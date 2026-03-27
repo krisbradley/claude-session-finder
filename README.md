@@ -2,13 +2,11 @@
 
 Interactive browser for your Claude Code sessions. Lists sessions with auto-generated titles and lets you fuzzy-search and resume them.
 
-## Features
+## Install
 
-- Auto-generates descriptive titles for sessions using keyword categorization
-- Full-text search across all session content via `fzf`
-- Preview pane showing session details (project, duration, messages)
-- Falls back to numbered list if `fzf` is not installed
-- Filters out trivial sessions (single commands, no meaningful content)
+```bash
+brew install kristopherbradley/tap/claude-sessions
+```
 
 ## Requirements
 
@@ -20,116 +18,29 @@ Interactive browser for your Claude Code sessions. Lists sessions with auto-gene
 brew install fzf
 ```
 
-## Installation
-
-### Run directly
-
-```bash
-python3 claude_sessions.py
-```
-
-### Install as a CLI command
-
-```bash
-pip install -e .
-claude-sessions
-```
-
-### Or symlink it
-
-```bash
-ln -s "$(pwd)/claude_sessions.py" ~/.local/bin/claude-sessions
-chmod +x claude_sessions.py
-claude-sessions
-```
-
-## fzf Preview Script
-
-The preview pane requires a helper script at `~/.local/bin/claude-sessions-preview`. Create it:
-
-```bash
-mkdir -p ~/.local/bin
-cat > ~/.local/bin/claude-sessions-preview << 'EOF'
-#!/usr/bin/env python3
-import sys
-import json
-from pathlib import Path
-from datetime import datetime
-from collections import defaultdict
-
-session_id = sys.argv[1] if len(sys.argv) > 1 else ""
-
-CLAUDE_DIR = Path.home() / '.claude'
-HISTORY_FILE = CLAUDE_DIR / 'history.jsonl'
-
-sessions = defaultdict(list)
-with open(HISTORY_FILE) as f:
-    for line in f:
-        try:
-            entry = json.loads(line)
-            sessions[entry.get('sessionId', '')].append(entry)
-        except Exception:
-            pass
-
-entries = sessions.get(session_id, [])
-if not entries:
-    print(f"Session {session_id} not found")
-    sys.exit(0)
-
-latest = max(entries, key=lambda x: x['timestamp'])
-oldest = min(entries, key=lambda x: x['timestamp'])
-start = datetime.fromtimestamp(oldest['timestamp'] / 1000)
-end = datetime.fromtimestamp(latest['timestamp'] / 1000)
-duration = end - start
-
-total_s = int(duration.total_seconds())
-if total_s < 60:
-    dur_str = f"{total_s}s"
-elif total_s < 3600:
-    dur_str = f"{total_s // 60}m {total_s % 60}s"
-else:
-    dur_str = f"{total_s // 3600}h {(total_s % 3600) // 60}m"
-
-project = latest.get('project', 'Unknown')
-try:
-    p = Path(project)
-    if p.is_relative_to(Path.home()):
-        project = f"~/{p.relative_to(Path.home())}"
-except Exception:
-    pass
-
-print("=" * 55)
-print(f"Session:   {session_id[:16]}...")
-print(f"Project:   {project}")
-print(f"Started:   {start.strftime('%Y-%m-%d %H:%M')}")
-print(f"Duration:  {dur_str}")
-print(f"Messages:  {len(entries)}")
-print("=" * 55)
-print()
-print("MESSAGES:")
-print("-" * 55)
-for e in entries[:20]:
-    display = e.get('display', '').strip()
-    if display:
-        if len(display) > 120:
-            display = display[:117] + "..."
-        print(f"  {display}")
-        print()
-EOF
-chmod +x ~/.local/bin/claude-sessions-preview
-```
-
 ## Usage
 
-```
+```bash
 claude-sessions
 ```
 
 - Type to search — matches session titles, project paths, and full message content
 - `↑/↓` to navigate
-- `Tab` to toggle preview
+- `Tab` to toggle preview pane
 - `Enter` to open and resume the selected session
 - `ESC` to cancel
+
+Falls back to a numbered list with manual selection if `fzf` is not installed.
+
+## fzf Preview Script
+
+The preview pane requires a helper script. After installing, create it:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/kristopherbradley/claude-session-finder/master/scripts/install-preview.sh | bash
+```
+
+Or manually place `scripts/claude-sessions-preview` at `~/.local/bin/claude-sessions-preview` and make it executable.
 
 ## How It Works
 
