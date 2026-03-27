@@ -599,7 +599,7 @@ def select_session_fzf(grouped_sessions: Dict[str, List[Dict]]) -> Optional[str]
                 '--height', '80%',
                 '--reverse',
                 '--border',
-                '--border-label', '\033[1;38;2;203;166;247m ✦ \033[38;2;180;190;254mClaude Session Finder\033[1;38;2;203;166;247m ✦ \033[0m',
+                '--border-label', '\033[1;38;2;187;154;247m ✦ \033[38;2;192;202;245mClaude Session Finder\033[1;38;2;187;154;247m ✦ \033[0m',
                 '--header', ' ↑↓ navigate   enter open   esc cancel   type to search all content',
                 '--prompt', '  ',
                 '--pointer', '❯',
@@ -612,17 +612,17 @@ def select_session_fzf(grouped_sessions: Dict[str, List[Dict]]) -> Optional[str]
                 '--preview-window', 'right:55%:wrap:border-left',
                 '--ansi',
                 '--color', (
-                    'fg:#cdd6f4,fg+:#cdd6f4,'
-                    'bg:#1e1e2e,bg+:#313244,'
-                    'hl:#89b4fa,hl+:#89dceb,'
-                    'border:#6c7086,'
-                    'label:#89b4fa,'
-                    'prompt:#cba6f7,'
-                    'pointer:#f38ba8,'
-                    'marker:#a6e3a1,'
-                    'header:#6c7086,'
-                    'info:#f9e2af,'
-                    'spinner:#f5e0dc'
+                    'fg:#c0caf5,fg+:#c0caf5,'
+                    'bg:#1a1b26,bg+:#292e42,'
+                    'hl:#7aa2f7,hl+:#7dcfff,'
+                    'border:#3b4261,'
+                    'label:#7aa2f7,'
+                    'prompt:#bb9af7,'
+                    'pointer:#f7768e,'
+                    'marker:#9ece6a,'
+                    'header:#565f89,'
+                    'info:#e0af68,'
+                    'spinner:#f7768e'
                 )
             ],
             input=display_input,
