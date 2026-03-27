@@ -1,17 +1,25 @@
 #!/usr/bin/env python3
 """
-Generate AI summaries for Claude Code sessions using a local HuggingFace model.
+Generate AI summaries for Claude Code sessions.
 Summaries are cached to ~/.claude/csf-summaries.json.
 
+Backends (in order of preference):
+  --ollama [model]   Use a local Ollama model (no download if already installed)
+  --model <id>       Use a HuggingFace transformers model (default: ~400MB download)
+
 Usage:
-    csf-summarize              # Summarize all new sessions
-    csf-summarize --all        # Regenerate all summaries (ignore cache)
-    csf-summarize --model <id> # Use a different HuggingFace model
+    csf-summarize                        # Auto-detect backend, summarize new sessions
+    csf-summarize --all                  # Regenerate all summaries
+    csf-summarize --ollama               # Use Ollama with default model (llama3.2)
+    csf-summarize --ollama phi3          # Use a specific Ollama model
+    csf-summarize --model t5-small       # Use a tiny transformers model (~240MB)
 """
 
 import json
 import sys
 import argparse
+import urllib.request
+import urllib.error
 from pathlib import Path
 from datetime import datetime
 from collections import defaultdict
@@ -20,9 +28,13 @@ CLAUDE_DIR = Path.home() / '.claude'
 HISTORY_FILE = CLAUDE_DIR / 'history.jsonl'
 SUMMARIES_FILE = CLAUDE_DIR / 'csf-summaries.json'
 
-DEFAULT_MODEL = 'philschmid/bart-large-cnn-samsum'
-MAX_INPUT_CHARS = 1500  # Keep well within model token limits
-MIN_MESSAGES = 3        # Skip sessions too short to summarize meaningfully
+# ~400MB, produces short single-sentence summaries — good size/quality tradeoff
+DEFAULT_HF_MODEL = 'sshleifer/distilbart-xsum-6-6'
+DEFAULT_OLLAMA_MODEL = 'llama3.2'
+OLLAMA_URL = 'http://localhost:11434/api/generate'
+
+MAX_INPUT_CHARS = 1500
+MIN_MESSAGES = 3
 
 
 def load_sessions():
@@ -40,21 +52,12 @@ def load_sessions():
 
 
 def build_input_text(entries):
-    """Build a dialogue-style text from session messages."""
     entries = sorted(entries, key=lambda x: x['timestamp'])
     messages = [e.get('display', '').strip() for e in entries if e.get('display', '').strip()]
     messages = [m for m in messages if len(m) > 3]
-
     if len(messages) < MIN_MESSAGES:
         return None
-
-    # Format as a conversation (samsum model expects dialogue format)
-    lines = []
-    for i, msg in enumerate(messages):
-        speaker = 'User' if i % 2 == 0 else 'Claude'
-        lines.append(f"{speaker}: {msg}")
-
-    text = '\n'.join(lines)
+    text = ' | '.join(messages)
     return text[:MAX_INPUT_CHARS]
 
 
@@ -72,34 +75,81 @@ def save_cache(cache):
 
 
 def content_hash(entries):
-    """Simple hash to detect if session content has changed."""
     msgs = ''.join(e.get('display', '') for e in entries)
     return str(hash(msgs) & 0xFFFFFFFF)
+
+
+def ollama_available():
+    try:
+        urllib.request.urlopen('http://localhost:11434', timeout=2)
+        return True
+    except Exception:
+        return False
+
+
+def summarize_with_ollama(text, model):
+    prompt = (
+        f"Summarize this technical conversation in one concise sentence (max 60 chars). "
+        f"Focus on what was built or solved. No preamble, just the summary.\n\n{text}"
+    )
+    payload = json.dumps({'model': model, 'prompt': prompt, 'stream': False}).encode()
+    req = urllib.request.Request(OLLAMA_URL, data=payload, headers={'Content-Type': 'application/json'})
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        result = json.loads(resp.read())
+        summary = result.get('response', '').strip()
+        # Collapse whitespace
+        summary = ' '.join(summary.split())
+        # Truncate to fit in fzf line
+        if len(summary) > 80:
+            summary = summary[:77] + '...'
+        return summary
+
+
+def summarize_with_transformers(text, pipeline, model_id):
+    result = pipeline(text, max_length=60, min_length=8, do_sample=False, truncation=True)
+    summary = result[0]['summary_text'].strip()
+    return ' '.join(summary.split())
 
 
 def main():
     parser = argparse.ArgumentParser(description='Generate AI summaries for Claude sessions')
     parser.add_argument('--all', action='store_true', help='Regenerate all summaries')
-    parser.add_argument('--model', default=DEFAULT_MODEL, help='HuggingFace model ID')
+    parser.add_argument('--ollama', nargs='?', const=DEFAULT_OLLAMA_MODEL, metavar='MODEL',
+                        help=f'Use Ollama (default model: {DEFAULT_OLLAMA_MODEL})')
+    parser.add_argument('--model', default=DEFAULT_HF_MODEL,
+                        help=f'HuggingFace model (default: {DEFAULT_HF_MODEL}, ~400MB)')
     args = parser.parse_args()
-
-    # Check transformers is available
-    try:
-        from transformers import pipeline
-    except ImportError:
-        print("Error: transformers is not installed.")
-        print("Install with: pip install transformers torch")
-        sys.exit(1)
 
     if not HISTORY_FILE.exists():
         print("No Claude Code history found.")
         sys.exit(1)
 
+    # Determine backend
+    use_ollama = args.ollama is not None
+    if use_ollama:
+        if not ollama_available():
+            print("Error: Ollama is not running. Start it with: ollama serve")
+            print("Or install from: https://ollama.com")
+            sys.exit(1)
+        ollama_model = args.ollama
+        backend_label = f"Ollama ({ollama_model})"
+        summarize_fn = None  # set up below
+    else:
+        try:
+            from transformers import pipeline as hf_pipeline
+        except ImportError:
+            print("Error: transformers is not installed.")
+            print("  pip install transformers torch")
+            print("")
+            print("Or use Ollama instead (no extra download if already installed):")
+            print("  ollama pull llama3.2 && csf-summarize --ollama")
+            sys.exit(1)
+        backend_label = f"HuggingFace ({args.model})"
+
     print(f"Loading sessions...")
     sessions = load_sessions()
     cache = {} if args.all else load_cache()
 
-    # Find sessions that need summarizing
     to_summarize = []
     for session_id, entries in sessions.items():
         if len(entries) < MIN_MESSAGES:
@@ -107,26 +157,24 @@ def main():
         chash = content_hash(entries)
         cached = cache.get(session_id, {})
         if not args.all and cached.get('hash') == chash and cached.get('summary'):
-            continue  # Already up to date
+            continue
         text = build_input_text(entries)
         if text:
             to_summarize.append((session_id, entries, text, chash))
 
     if not to_summarize:
-        print(f"All {len(sessions)} sessions already summarized.")
+        print(f"All sessions already summarized.")
         return
 
-    print(f"Loading model: {args.model}")
-    print("(First run will download the model, ~1GB)")
-    try:
-        summarizer = pipeline(
-            'summarization',
-            model=args.model,
-            device=-1,  # CPU; change to 0 for GPU
-        )
-    except Exception as e:
-        print(f"Error loading model: {e}")
-        sys.exit(1)
+    print(f"Backend: {backend_label}")
+
+    if not use_ollama:
+        print(f"Loading model (downloads ~400MB on first run)...")
+        try:
+            hf = hf_pipeline('summarization', model=args.model, device=-1)
+        except Exception as e:
+            print(f"Error loading model: {e}")
+            sys.exit(1)
 
     print(f"\nSummarizing {len(to_summarize)} sessions...\n")
 
@@ -143,32 +191,24 @@ def main():
         print(f"[{i}/{len(to_summarize)}] {session_id[:8]}... ({project})")
 
         try:
-            result = summarizer(
-                text,
-                max_length=60,
-                min_length=10,
-                do_sample=False,
-                truncation=True,
-            )
-            summary = result[0]['summary_text'].strip()
-            # Collapse whitespace / newlines the model sometimes emits
-            summary = ' '.join(summary.split())
-            print(f"  → {summary}\n")
+            if use_ollama:
+                summary = summarize_with_ollama(text, ollama_model)
+            else:
+                summary = summarize_with_transformers(text, hf, args.model)
 
+            print(f"  → {summary}\n")
             cache[session_id] = {
                 'summary': summary,
                 'hash': chash,
                 'generated_at': datetime.now().isoformat(),
-                'model': args.model,
+                'backend': backend_label,
             }
-            # Save incrementally so progress isn't lost on interrupt
             save_cache(cache)
-
         except Exception as e:
             print(f"  ✗ Failed: {e}\n")
 
-    total_cached = sum(1 for v in cache.values() if v.get('summary'))
-    print(f"Done. {total_cached} summaries cached in {SUMMARIES_FILE}")
+    total = sum(1 for v in cache.values() if v.get('summary'))
+    print(f"Done. {total} summaries cached in {SUMMARIES_FILE}")
 
 
 if __name__ == '__main__':
