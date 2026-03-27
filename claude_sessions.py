@@ -1,0 +1,648 @@
+#!/usr/bin/env python3
+"""
+Claude Code Session Manager
+Interactive browser for Claude Code sessions with summaries
+"""
+
+import json
+import os
+import sys
+import subprocess
+from pathlib import Path
+from datetime import datetime
+from collections import defaultdict
+from typing import List, Dict, Optional
+
+# ANSI color codes
+BOLD = '\033[1m'
+DIM = '\033[2m'
+RESET = '\033[0m'
+CYAN = '\033[36m'
+GREEN = '\033[32m'
+YELLOW = '\033[33m'
+BLUE = '\033[34m'
+MAGENTA = '\033[35m'
+
+CLAUDE_DIR = Path.home() / '.claude'
+HISTORY_FILE = CLAUDE_DIR / 'history.jsonl'
+DEBUG_DIR = CLAUDE_DIR / 'debug'
+
+
+def parse_timestamp(ts: int) -> datetime:
+    """Convert millisecond timestamp to datetime"""
+    return datetime.fromtimestamp(ts / 1000)
+
+
+def format_time_ago(dt: datetime) -> str:
+    """Format datetime as relative time"""
+    now = datetime.now()
+    diff = now - dt
+
+    if diff.days > 365:
+        return f"{diff.days // 365}y ago"
+    elif diff.days > 30:
+        return f"{diff.days // 30}mo ago"
+    elif diff.days > 0:
+        return f"{diff.days}d ago"
+    elif diff.seconds > 3600:
+        return f"{diff.seconds // 3600}h ago"
+    elif diff.seconds > 60:
+        return f"{diff.seconds // 60}m ago"
+    else:
+        return "just now"
+
+
+def get_session_summary(session_id: str, max_length: int = 100) -> str:
+    """Extract a summary from the session transcript"""
+    debug_file = DEBUG_DIR / f"{session_id}.txt"
+
+    if not debug_file.exists():
+        return "No transcript available"
+
+    try:
+        with open(debug_file, 'r', encoding='utf-8') as f:
+            content = f.read(5000)  # Read first 5KB
+
+            # Look for the first user message
+            lines = content.split('\n')
+            for line in lines:
+                if line.strip() and not line.startswith('['):
+                    # Clean up the line
+                    summary = line.strip()
+                    if len(summary) > max_length:
+                        summary = summary[:max_length] + "..."
+                    return summary
+
+            return "Empty session"
+    except Exception as e:
+        return f"Error reading transcript: {e}"
+
+
+def create_preview_summary(session_id: str, entries: List[Dict]) -> str:
+    """Create a formatted preview summary for fzf"""
+    debug_file = DEBUG_DIR / f"{session_id}.txt"
+
+    # Header
+    msg_count = len(entries)
+    latest = max(entries, key=lambda x: x['timestamp'])
+    oldest = min(entries, key=lambda x: x['timestamp'])
+
+    start_time = parse_timestamp(oldest['timestamp'])
+    end_time = parse_timestamp(latest['timestamp'])
+    duration = end_time - start_time
+
+    project = latest.get('project', 'Unknown')
+
+    lines = []
+    lines.append("=" * 60)
+    lines.append(f"SESSION: {session_id}")
+    lines.append("=" * 60)
+    lines.append(f"Project:   {project}")
+    lines.append(f"Started:   {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
+    lines.append(f"Duration:  {format_duration(duration)}")
+    lines.append(f"Messages:  {msg_count}")
+    lines.append("=" * 60)
+    lines.append("")
+
+    # Try to extract conversation
+    if debug_file.exists():
+        try:
+            with open(debug_file, 'r', encoding='utf-8') as f:
+                content = f.read(50000)  # Read more for better context
+
+                # Extract key interactions
+                lines.append("CONVERSATION SUMMARY:")
+                lines.append("-" * 60)
+
+                # Parse the transcript for user messages and tool calls
+                conversation = parse_transcript_for_preview(content)
+
+                for item in conversation[:15]:  # Show first 15 items
+                    lines.append(item)
+                    lines.append("")
+
+                if len(conversation) > 15:
+                    lines.append(f"... and {len(conversation) - 15} more interactions")
+
+        except Exception as e:
+            lines.append(f"Error reading transcript: {e}")
+    else:
+        lines.append("No transcript available")
+
+    return '\n'.join(lines)
+
+
+def format_duration(delta) -> str:
+    """Format timedelta as human readable duration"""
+    total_seconds = int(delta.total_seconds())
+    if total_seconds < 60:
+        return f"{total_seconds}s"
+    elif total_seconds < 3600:
+        return f"{total_seconds // 60}m {total_seconds % 60}s"
+    elif total_seconds < 86400:
+        hours = total_seconds // 3600
+        minutes = (total_seconds % 3600) // 60
+        return f"{hours}h {minutes}m"
+    else:
+        days = total_seconds // 86400
+        hours = (total_seconds % 86400) // 3600
+        return f"{days}d {hours}h"
+
+
+def generate_session_title(entries: List[Dict]) -> str:
+    """Generate a descriptive title for a session based on its messages"""
+    if not entries:
+        return None
+
+    # Get first several messages to understand the topic
+    messages = [e.get('display', '').strip() for e in entries[:10] if e.get('display', '').strip()]
+
+    if not messages:
+        return None
+
+    # Filter out messages that are just special characters or very short
+    meaningful_messages = [m for m in messages if len(m) > 5 and any(c.isalnum() for c in m)]
+
+    if not meaningful_messages:
+        return None
+
+    # Use meaningful messages from here on
+    messages = meaningful_messages
+
+    # Skip sessions that are just commands like "/resume"
+    if all(msg.startswith('/') or len(msg) < 5 for msg in messages[:3]):
+        return None
+
+    # Need at least one substantial message (>15 chars)
+    if not any(len(msg) > 15 for msg in messages[:3]):
+        return None
+
+    # Combine first few messages for analysis
+    combined = ' '.join(messages[:5]).lower()
+
+    # Categorize based on keywords
+    keywords = {
+        '🔧': ['fix', 'bug', 'error', 'issue', 'broken', 'debug', 'problem', 'troubleshoot'],
+        '✨': ['create', 'add', 'new', 'make', 'build', 'implement', 'develop', 'write'],
+        '📝': ['update', 'modify', 'change', 'refactor', 'improve', 'edit', 'rewrite'],
+        '📚': ['help', 'how', 'explain', 'what', 'understand', 'show', 'tell', 'learn'],
+        '🔍': ['search', 'find', 'look', 'where', 'locate'],
+        '📦': ['deploy', 'release', 'publish', 'push', 'merge'],
+        '🧪': ['test', 'testing', 'spec', 'unit'],
+        '📋': ['list', 'show', 'display', 'get', 'fetch', 'view'],
+        '🗑️': ['delete', 'remove', 'clean', 'cleanup'],
+        '⚙️': ['config', 'setup', 'configure', 'install', 'settings'],
+        '🔐': ['auth', 'login', 'permission', 'access', 'credential', 'secret', 'token'],
+        '📊': ['data', 'query', 'database', 'sql', 'snowflake', 'salesforce'],
+        '🐛': ['exception', 'crash', 'failure', 'failed', 'abort'],
+        '📖': ['read', 'review', 'check', 'analyze', 'examine'],
+        '💾': ['save', 'commit', 'store', 'backup'],
+    }
+
+    # Find matching emoji
+    emoji = '💬'
+    for icon, words in keywords.items():
+        if any(word in combined for word in words):
+            emoji = icon
+            break
+
+    # Identify important technical terms and proper nouns (capitalized or commonly known)
+    tech_terms = ['salesforce', 'github', 'git', 'docker', 'kubernetes', 'aws', 'api', 'database',
+                  'sql', 'python', 'javascript', 'typescript', 'react', 'node', 'npm', 'jira',
+                  'confluence', 'slack', 'oauth', 'jwt', 'token', 'authentication', 'authorization',
+                  'deployment', 'cicd', 'pipeline', 'workflow', 'fastpath', 'copado', 'zuora',
+                  'netsuite', 'datadog', 'splunk', 'snowflake', 'sfdx', 'apex']
+
+    # Find important terms in the combined messages
+    important_terms = []
+    for term in tech_terms:
+        if term in combined:
+            important_terms.append(term.capitalize() if term.islower() else term)
+
+    # Build a descriptive title
+    # Skip generic first messages like "commit this", "push it"
+    first_msg = messages[0]
+    quick_bad = ['commit this', 'push it', 'push this', 'save this', 'commit', 'push']
+    if len(messages) > 1:
+        for msg in messages[:5]:
+            is_generic = False
+            msg_lower = msg.lower().strip()
+            for bad in quick_bad:
+                if msg_lower == bad or (msg_lower.startswith(bad + ' ') and len(msg) < 20):
+                    is_generic = True
+                    break
+            if not is_generic and len(msg) > 15:
+                first_msg = msg
+                break
+
+    # Strip common filler phrases more aggressively
+    strip_phrases = [
+        'can you ', 'could you ', 'please ', 'help me ', 'i need ', 'i want ',
+        'i would like ', 'would you ', 'can we ', "let's ", 'lets ',
+        'i have ', 'there is ', 'there are ', 'i got ', 'i see ',
+        'i am ', "i'm ", 'we need ', 'we should '
+    ]
+
+    title = first_msg
+    for phrase in strip_phrases:
+        title = title.replace(phrase, '')
+        title = title.replace(phrase.capitalize(), '')
+
+    title = title.strip()
+
+    # If title is too generic after stripping, try to enhance with important terms
+    if len(title) < 15 and important_terms:
+        # Build a better title from context
+        if important_terms:
+            title = f"Working with {important_terms[0]}"
+            if len(important_terms) > 1:
+                title += f" and {important_terms[1]}"
+
+    # Capitalize first letter
+    if title and len(title) > 0:
+        title = title[0].upper() + title[1:]
+
+    # Truncate intelligently
+    if len(title) > 55:
+        if ' ' in title[45:55]:
+            cut_point = title.rfind(' ', 45, 55)
+            if cut_point > 35:
+                title = title[:cut_point] + "..."
+            else:
+                title = title[:52] + "..."
+        else:
+            title = title[:52] + "..."
+
+    # Final validation - filter out non-descriptive titles
+    title_lower = title.lower().strip()
+
+    # List of patterns that indicate non-descriptive sessions
+    bad_patterns = [
+        '/resume', '/model', '/help', '/start', '/commit',
+        'resume', 'model', 'help', 'start', 'commit this', 'push it',
+        'push this', 'commit', 'save', 'ok', 'yes', 'no', 'sure',
+        'thanks', 'thank you', 'done', 'great', 'perfect', 'sounds good',
+        'go ahead', 'continue', 'proceed', 'next', 'please',
+        'got it', 'i see', 'understood', 'looks good', 'message',
+        'a message', 'the message', 'hi team', 'team', 'window',
+        'page', 'open', 'close', 'click'
+    ]
+
+    # Check if title is too generic
+    if not title or len(title) < 15:
+        return None
+
+    # Check against bad patterns
+    for pattern in bad_patterns:
+        if title_lower == pattern or title_lower.startswith(pattern + ' ') or title_lower.startswith(pattern + ','):
+            return None
+
+    # Make sure there's actual content (not just emoji)
+    title_no_emoji = title
+    for em in ['🔧', '✨', '📝', '📚', '🔍', '📦', '🧪', '📋', '🗑️', '⚙️', '🔐', '📊', '🐛', '📖', '💾', '💬']:
+        title_no_emoji = title_no_emoji.replace(em, '').strip()
+
+    if len(title_no_emoji) < 12:
+        return None
+
+    return f"{emoji} {title}"
+
+
+def parse_transcript_for_preview(content: str) -> List[str]:
+    """Parse transcript and extract key information for preview"""
+    lines = content.split('\n')
+    items = []
+    current_block = []
+    block_type = None
+
+    for line in lines[:500]:  # Process first 500 lines
+        line = line.strip()
+
+        # Detect user messages
+        if line.startswith('[USER]') or (not line.startswith('[') and line and len(current_block) == 0):
+            if current_block and block_type:
+                items.append(format_preview_block(block_type, current_block))
+            current_block = [line.replace('[USER]', '').strip()]
+            block_type = 'user'
+
+        # Detect tool usage
+        elif 'Tool:' in line or 'Bash:' in line or 'Read:' in line or 'Write:' in line or 'Edit:' in line:
+            if current_block and block_type:
+                items.append(format_preview_block(block_type, current_block))
+            current_block = [line]
+            block_type = 'tool'
+
+        # Detect Claude responses
+        elif line.startswith('[CLAUDE]') or line.startswith('[Assistant]'):
+            if current_block and block_type:
+                items.append(format_preview_block(block_type, current_block))
+            current_block = [line.replace('[CLAUDE]', '').replace('[Assistant]', '').strip()]
+            block_type = 'claude'
+
+        # Continue current block
+        elif current_block and line:
+            current_block.append(line)
+            if len(current_block) > 5:  # Limit block size
+                break
+
+    # Add last block
+    if current_block and block_type:
+        items.append(format_preview_block(block_type, current_block))
+
+    return items
+
+
+def format_preview_block(block_type: str, lines: List[str]) -> str:
+    """Format a block for preview display"""
+    if block_type == 'user':
+        text = ' '.join(lines[:3])  # First 3 lines
+        if len(text) > 200:
+            text = text[:197] + "..."
+        return f"👤 USER: {text}"
+
+    elif block_type == 'claude':
+        text = ' '.join(lines[:3])
+        if len(text) > 200:
+            text = text[:197] + "..."
+        return f"🤖 CLAUDE: {text}"
+
+    elif block_type == 'tool':
+        text = ' '.join(lines[:2])
+        if len(text) > 200:
+            text = text[:197] + "..."
+        return f"🔧 TOOL: {text}"
+
+    return ""
+
+
+def load_sessions() -> List[Dict]:
+    """Load all sessions from history.jsonl"""
+    if not HISTORY_FILE.exists():
+        print(f"{YELLOW}No history file found at {HISTORY_FILE}{RESET}")
+        return []
+
+    sessions = []
+    with open(HISTORY_FILE, 'r') as f:
+        for line in f:
+            try:
+                session = json.loads(line.strip())
+                sessions.append(session)
+            except json.JSONDecodeError:
+                continue
+
+    return sessions
+
+
+def group_sessions_by_id(sessions: List[Dict], min_messages: int = 2) -> Dict[str, List[Dict]]:
+    """Group sessions by sessionId and filter out sessions with too few messages"""
+    grouped = defaultdict(list)
+    for session in sessions:
+        session_id = session.get('sessionId')
+        if session_id:
+            grouped[session_id].append(session)
+
+    # Filter out sessions with fewer than min_messages
+    filtered = {sid: msgs for sid, msgs in grouped.items() if len(msgs) >= min_messages}
+    return filtered
+
+
+def print_sessions(grouped_sessions: Dict[str, List[Dict]]):
+    """Print formatted list of sessions"""
+    # Sort by most recent first
+    sorted_sessions = sorted(
+        grouped_sessions.items(),
+        key=lambda x: max(s['timestamp'] for s in x[1]),
+        reverse=True
+    )
+
+    print(f"\n{BOLD}{CYAN}Claude Code Sessions{RESET}\n")
+
+    printed = 0
+    for session_id, entries in sorted_sessions[:50]:  # Show last 50 sessions
+        # Get the most recent entry for this session
+        latest = max(entries, key=lambda x: x['timestamp'])
+        timestamp = parse_timestamp(latest['timestamp'])
+        time_ago = format_time_ago(timestamp)
+
+        # Get project directory (relative to home if possible)
+        project = latest.get('project', 'Unknown')
+        try:
+            project_path = Path(project)
+            if project_path.is_relative_to(Path.home()):
+                project = f"~/{project_path.relative_to(Path.home())}"
+        except (ValueError, AttributeError):
+            pass
+
+        # Generate intelligent session title
+        session_title = generate_session_title(entries)
+
+        # Skip sessions with no meaningful title
+        if not session_title:
+            continue
+
+        printed += 1
+
+        # Count messages in session
+        msg_count = len(entries)
+
+        # Format output
+        print(f"{DIM}{printed:2d}.{RESET} {GREEN}{time_ago:>8}{RESET} {DIM}│{RESET} {msg_count:>3} msgs {DIM}│{RESET} {BLUE}{project}{RESET}")
+        print(f"    {session_title}")
+        print(f"    {DIM}[{session_id[:8]}]{RESET}")
+        print()
+
+    print(f"{DIM}Showing {printed} of {len(sorted_sessions)} sessions{RESET}\n")
+
+    # Return sessions with valid titles only
+    valid_sessions = []
+    for session_id, entries in sorted_sessions[:50]:
+        if generate_session_title(entries):
+            valid_sessions.append((session_id, entries))
+    return valid_sessions
+
+
+def select_session_fzf(grouped_sessions: Dict[str, List[Dict]]) -> Optional[str]:
+    """Use fzf for interactive session selection"""
+    # Sort by most recent first
+    sorted_sessions = sorted(
+        grouped_sessions.items(),
+        key=lambda x: max(s['timestamp'] for s in x[1]),
+        reverse=True
+    )
+
+    # Prepare fzf input
+    fzf_input = []
+    for session_id, entries in sorted_sessions[:100]:  # Limit to 100 most recent
+        latest = max(entries, key=lambda x: x['timestamp'])
+        timestamp = parse_timestamp(latest['timestamp'])
+        time_ago = format_time_ago(timestamp)
+
+        # Generate intelligent session title
+        session_title = generate_session_title(entries)
+
+        # Skip sessions with no meaningful title
+        if not session_title:
+            continue
+
+        msg_count = len(entries)
+
+        # Collect all message content for full-text search
+        all_messages = ' '.join([e.get('display', '').strip() for e in entries if e.get('display', '').strip()])
+
+        # CRITICAL: Remove tabs and newlines to prevent breaking TSV format
+        all_messages = all_messages.replace('\t', ' ').replace('\n', ' ').replace('\r', ' ')
+
+        # Skip if no actual content or too short
+        if not all_messages or len(all_messages) < 20:
+            continue
+
+        # Make sure there's alphanumeric content
+        if not any(c.isalnum() for c in all_messages):
+            continue
+
+        # Get project for searchability
+        project = latest.get('project', '')
+        try:
+            project_path = Path(project)
+            if project_path.is_relative_to(Path.home()):
+                project = str(project_path.relative_to(Path.home()))
+        except (ValueError, AttributeError):
+            pass
+
+        # Format: session_id \t display_line \t searchable_content
+        # fzf will search through all fields but only display field 2
+        display_line = f"{time_ago:>8} │ {msg_count:>3} msgs │ {session_title}"
+        searchable_content = f"{session_title} {project} {all_messages}"
+        searchable_content = searchable_content.replace('\t', ' ').replace('\n', ' ').replace('\r', ' ')
+
+        # ULTRA-STRICT validation - prevent ANY questionable entries
+        if not display_line or len(display_line.strip()) < 30:
+            continue
+        if not searchable_content or len(searchable_content.strip()) < 20:
+            continue
+        if not session_title or len(session_title.strip()) < 15:
+            continue
+
+        fzf_input.append(f"{session_id}\t{display_line}\t{searchable_content}")
+
+    # Check if we have any sessions to display
+    if not fzf_input:
+        print(f"\n{YELLOW}No sessions with meaningful content found.{RESET}")
+        print(f"All sessions have been filtered out (commands only, too short, etc.)")
+        return None
+
+    # Debug: Save fzf input to file for inspection
+    debug_file = Path.home() / '.claude' / 'sessions-debug.txt'
+    with open(debug_file, 'w') as f:
+        f.write(f"Total sessions: {len(fzf_input)}\n")
+        f.write("=" * 80 + "\n")
+        for line in fzf_input:
+            parts = line.split('\t')
+            if len(parts) >= 2:
+                f.write(f"ID: {parts[0][:8]}... | Display: {parts[1]}\n")
+        f.write("=" * 80 + "\n")
+
+    # Run fzf with full-text search
+    # Format: session_id \t display_line \t searchable_content
+    # --with-nth 2 displays only the second field (display_line)
+    # But fzf searches through ALL fields including full message content
+    preview_script = Path.home() / '.local/bin/claude-sessions-preview'
+    try:
+        result = subprocess.run(
+            [
+                'fzf',
+                '--height', '80%',
+                '--reverse',
+                '--border',
+                '--border-label', '│ Claude Sessions - Full Text Search │',
+                '--header', 'Type to search full session content • ↑/↓: navigate • Tab: preview • Enter: open • ESC: cancel',
+                '--prompt', '🔍 Search: ',
+                '--pointer', '▶',
+                '--marker', '✓',
+                '--delimiter', '\t',
+                '--with-nth', '2',  # Display only field 2, but search all fields
+                '--preview', f'{preview_script} {{1}}',
+                '--preview-window', 'right:55%:wrap',
+                '--ansi',
+                '--color', 'prompt:cyan,pointer:green,marker:yellow,header:dim'
+            ],
+            input='\n'.join(fzf_input),
+            capture_output=True,
+            text=True
+        )
+
+        if result.returncode == 0 and result.stdout.strip():
+            session_id = result.stdout.strip().split('\t')[0]
+            return session_id
+    except FileNotFoundError:
+        print(f"{YELLOW}fzf not found. Install with: brew install fzf{RESET}")
+        return None
+    except Exception as e:
+        print(f"{YELLOW}Error running fzf: {e}{RESET}")
+        return None
+
+    return None
+
+
+def open_session(session_id: str, entries: List[Dict]):
+    """Open a Claude session"""
+    latest = max(entries, key=lambda x: x['timestamp'])
+    project = latest.get('project', os.getcwd())
+
+    print(f"\n{GREEN}Opening Claude Code session {session_id[:8]} in {project}...{RESET}\n")
+
+    # Launch Claude Code with the session
+    try:
+        os.chdir(project)
+        subprocess.run(['claude', 'code', '--resume', session_id])
+    except Exception as e:
+        print(f"{YELLOW}Error opening session: {e}{RESET}")
+        print(f"Try running: cd {project} && claude code --resume {session_id}")
+
+
+def main():
+    if not HISTORY_FILE.exists():
+        print(f"{YELLOW}No Claude Code history found.{RESET}")
+        print(f"Run Claude Code first to create sessions.")
+        sys.exit(1)
+
+    # Load and group sessions
+    sessions = load_sessions()
+    if not sessions:
+        print(f"{YELLOW}No sessions found in history.{RESET}")
+        sys.exit(1)
+
+    grouped = group_sessions_by_id(sessions)
+
+    # Check if fzf is available
+    fzf_available = subprocess.run(['which', 'fzf'], capture_output=True).returncode == 0
+
+    if fzf_available:
+        # Use fzf for selection
+        selected_id = select_session_fzf(grouped)
+        if selected_id and selected_id in grouped:
+            open_session(selected_id, grouped[selected_id])
+    else:
+        # Fallback: just print sessions
+        print(f"{YELLOW}Tip: Install fzf for interactive selection: brew install fzf{RESET}\n")
+        sorted_sessions = print_sessions(grouped)
+
+        # Prompt for selection
+        try:
+            choice = input(f"{BOLD}Enter session number (or 'q' to quit): {RESET}")
+            if choice.lower() == 'q':
+                sys.exit(0)
+
+            idx = int(choice) - 1
+            if 0 <= idx < len(sorted_sessions):
+                session_id, entries = sorted_sessions[idx]
+                open_session(session_id, entries)
+            else:
+                print(f"{YELLOW}Invalid selection{RESET}")
+        except (ValueError, KeyboardInterrupt):
+            print(f"\n{YELLOW}Cancelled{RESET}")
+            sys.exit(0)
+
+
+if __name__ == '__main__':
+    main()

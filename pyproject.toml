@@ -1,0 +1,12 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "claude-session-finder"
+version = "0.1.0"
+description = "Interactive browser for Claude Code sessions"
+requires-python = ">=3.9"
+
+[project.scripts]
+claude-sessions = "claude_sessions:main"
