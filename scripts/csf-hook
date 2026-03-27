@@ -1,0 +1,7 @@
+#!/bin/bash
+# Claude Code Stop hook wrapper for csf-summarize.
+# Reads and discards stdin (session JSON sent by Claude), runs summarizer
+# silently in the background so it doesn't block or produce hook errors.
+cat > /dev/null
+"$(dirname "$0")/csf-summarize" > /dev/null 2>&1 &
+exit 0
