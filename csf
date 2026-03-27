@@ -161,6 +161,34 @@ def format_duration(delta) -> str:
         return f"{days}d {hours}h"
 
 
+KEYWORDS = {
+    '🔧': ['fix', 'bug', 'error', 'issue', 'broken', 'debug', 'problem', 'troubleshoot'],
+    '✨': ['create', 'add', 'new', 'make', 'build', 'implement', 'develop', 'write'],
+    '📝': ['update', 'modify', 'change', 'refactor', 'improve', 'edit', 'rewrite'],
+    '📚': ['help', 'how', 'explain', 'what', 'understand', 'show', 'tell', 'learn'],
+    '🔍': ['search', 'find', 'look', 'where', 'locate'],
+    '📦': ['deploy', 'release', 'publish', 'push', 'merge'],
+    '🧪': ['test', 'testing', 'spec', 'unit'],
+    '📋': ['list', 'show', 'display', 'get', 'fetch', 'view'],
+    '🗑️': ['delete', 'remove', 'clean', 'cleanup'],
+    '⚙️': ['config', 'setup', 'configure', 'install', 'settings'],
+    '🔐': ['auth', 'login', 'permission', 'access', 'credential', 'secret', 'token'],
+    '📊': ['data', 'query', 'database', 'sql', 'snowflake', 'salesforce'],
+    '🐛': ['exception', 'crash', 'failure', 'failed', 'abort'],
+    '📖': ['read', 'review', 'check', 'analyze', 'examine'],
+    '💾': ['save', 'commit', 'store', 'backup'],
+}
+
+
+def pick_emoji(text: str) -> str:
+    """Pick an emoji based on keyword presence in text."""
+    lowered = text.lower()
+    for icon, words in KEYWORDS.items():
+        if any(word in lowered for word in words):
+            return icon
+    return '💬'
+
+
 def generate_session_title(entries: List[Dict]) -> str:
     """Generate a descriptive title for a session based on its messages"""
     if not entries:
@@ -192,31 +220,7 @@ def generate_session_title(entries: List[Dict]) -> str:
     # Combine first few messages for analysis
     combined = ' '.join(messages[:5]).lower()
 
-    # Categorize based on keywords
-    keywords = {
-        '🔧': ['fix', 'bug', 'error', 'issue', 'broken', 'debug', 'problem', 'troubleshoot'],
-        '✨': ['create', 'add', 'new', 'make', 'build', 'implement', 'develop', 'write'],
-        '📝': ['update', 'modify', 'change', 'refactor', 'improve', 'edit', 'rewrite'],
-        '📚': ['help', 'how', 'explain', 'what', 'understand', 'show', 'tell', 'learn'],
-        '🔍': ['search', 'find', 'look', 'where', 'locate'],
-        '📦': ['deploy', 'release', 'publish', 'push', 'merge'],
-        '🧪': ['test', 'testing', 'spec', 'unit'],
-        '📋': ['list', 'show', 'display', 'get', 'fetch', 'view'],
-        '🗑️': ['delete', 'remove', 'clean', 'cleanup'],
-        '⚙️': ['config', 'setup', 'configure', 'install', 'settings'],
-        '🔐': ['auth', 'login', 'permission', 'access', 'credential', 'secret', 'token'],
-        '📊': ['data', 'query', 'database', 'sql', 'snowflake', 'salesforce'],
-        '🐛': ['exception', 'crash', 'failure', 'failed', 'abort'],
-        '📖': ['read', 'review', 'check', 'analyze', 'examine'],
-        '💾': ['save', 'commit', 'store', 'backup'],
-    }
-
-    # Find matching emoji
-    emoji = '💬'
-    for icon, words in keywords.items():
-        if any(word in combined for word in words):
-            emoji = icon
-            break
+    emoji = pick_emoji(combined)
 
     # Identify important technical terms and proper nouns (capitalized or commonly known)
     tech_terms = ['salesforce', 'github', 'git', 'docker', 'kubernetes', 'aws', 'api', 'database',
@@ -449,7 +453,9 @@ def print_sessions(grouped_sessions: Dict[str, List[Dict]]):
 
         # Use AI summary if available, otherwise fall back to keyword title
         if session_id in summaries:
-            session_title = f"★ {summaries[session_id]}"
+            summary = summaries[session_id]
+            emoji = pick_emoji(' '.join(e.get('display', '') for e in entries))
+            session_title = f"{emoji} ★ {summary}"
         else:
             session_title = generate_session_title(entries)
 
@@ -498,7 +504,9 @@ def select_session_fzf(grouped_sessions: Dict[str, List[Dict]]) -> Optional[str]
 
         # Use AI summary if available, otherwise fall back to keyword title
         if session_id in summaries:
-            session_title = f"★ {summaries[session_id]}"
+            summary = summaries[session_id]
+            emoji = pick_emoji(' '.join(e.get('display', '') for e in entries))
+            session_title = f"{emoji} ★ {summary}"
         else:
             session_title = generate_session_title(entries)
 
