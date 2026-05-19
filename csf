@@ -61,14 +61,14 @@ def load_session_metadata() -> Dict[str, Dict]:
                 sid = f.stem
                 try:
                     for line in f.open():
-                        if '"custom-title"' not in line and '"custom-color"' not in line:
+                        if '"custom-title"' not in line and '"agent-color"' not in line:
                             continue
                         data = json.loads(line)
                         entry_type = data.get('type', '')
                         if entry_type == 'custom-title' and data.get('customTitle'):
                             meta.setdefault(sid, {})['name'] = data['customTitle']
-                        elif entry_type == 'custom-color' and data.get('customColor'):
-                            meta.setdefault(sid, {})['color'] = data['customColor']
+                        elif entry_type == 'agent-color' and data.get('agentColor'):
+                            meta.setdefault(sid, {})['color'] = data['agentColor']
                 except Exception:
                     continue
 
