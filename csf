@@ -25,10 +25,51 @@ YELLOW = '\033[33m'
 BLUE = '\033[34m'
 MAGENTA = '\033[35m'
 
-CLAUDE_DIR = Path.home() / '.claude'
+CLAUDE_DIR = Path(os.environ.get('CLAUDE_CONFIG_DIR', Path.home() / '.claude'))
 HISTORY_FILE = CLAUDE_DIR / 'history.jsonl'
 DEBUG_DIR = CLAUDE_DIR / 'debug'
 SUMMARIES_FILE = CLAUDE_DIR / 'csf-summaries.json'
+
+
+SESSIONS_DIR = CLAUDE_DIR / 'sessions'
+
+COLOR_ANSI = {
+    'red': '\033[31m',
+    'green': '\033[32m',
+    'yellow': '\033[33m',
+    'blue': '\033[34m',
+    'magenta': '\033[35m',
+    'cyan': '\033[36m',
+    'orange': '\033[38;5;208m',
+    'pink': '\033[38;5;213m',
+    'purple': '\033[38;5;141m',
+    'white': '\033[37m',
+}
+
+
+def load_session_metadata() -> Dict[str, Dict]:
+    """Load name/color metadata from sessions/*.json, keyed by sessionId."""
+    meta = {}
+    if not SESSIONS_DIR.exists():
+        return meta
+    for f in SESSIONS_DIR.glob('*.json'):
+        try:
+            for line in f.read_text().splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                data = json.loads(line)
+                sid = data.get('sessionId')
+                if sid:
+                    existing = meta.get(sid, {})
+                    if data.get('name'):
+                        existing['name'] = data['name']
+                    if data.get('color'):
+                        existing['color'] = data['color']
+                    meta[sid] = existing
+        except Exception:
+            continue
+    return meta
 
 
 def load_summaries() -> Dict[str, str]:
@@ -424,9 +465,33 @@ def group_sessions_by_id(sessions: List[Dict], min_messages: int = 2) -> Dict[st
     return filtered
 
 
+def resolve_session_title(session_id: str, entries: List[Dict], summaries: Dict, session_meta: Dict) -> Optional[str]:
+    """Resolve a session's display title: user name > AI summary > generated."""
+    meta = session_meta.get(session_id, {})
+    user_name = meta.get('name')
+
+    if user_name:
+        emoji = pick_emoji(' '.join(e.get('display', '') for e in entries))
+        return f"{emoji} {user_name}"
+    elif session_id in summaries:
+        summary = summaries[session_id]
+        emoji = pick_emoji(' '.join(e.get('display', '') for e in entries))
+        return f"{emoji} ★ {summary}"
+    else:
+        return generate_session_title(entries)
+
+
+def get_session_color(session_id: str, session_meta: Dict) -> Optional[str]:
+    """Return the ANSI color code for a session's user-assigned color, if any."""
+    meta = session_meta.get(session_id, {})
+    color_name = meta.get('color', '').lower()
+    return COLOR_ANSI.get(color_name)
+
+
 def print_sessions(grouped_sessions: Dict[str, List[Dict]]):
     """Print formatted list of sessions"""
     summaries = load_summaries()
+    session_meta = load_session_metadata()
 
     # Sort by most recent first
     sorted_sessions = sorted(
@@ -453,13 +518,7 @@ def print_sessions(grouped_sessions: Dict[str, List[Dict]]):
         except (ValueError, AttributeError):
             pass
 
-        # Use AI summary if available, otherwise fall back to keyword title
-        if session_id in summaries:
-            summary = summaries[session_id]
-            emoji = pick_emoji(' '.join(e.get('display', '') for e in entries))
-            session_title = f"{emoji} ★ {summary}"
-        else:
-            session_title = generate_session_title(entries)
+        session_title = resolve_session_title(session_id, entries, summaries, session_meta)
 
         # Skip sessions with no meaningful title
         if not session_title:
@@ -471,8 +530,10 @@ def print_sessions(grouped_sessions: Dict[str, List[Dict]]):
         msg_count = len(entries)
 
         # Format output
+        session_color = get_session_color(session_id, session_meta)
+        title_display = f"{session_color}{session_title}{RESET}" if session_color else session_title
         print(f"{DIM}{printed:2d}.{RESET} {GREEN}{time_ago:>8}{RESET} {DIM}│{RESET} {msg_count:>3} msgs {DIM}│{RESET} {BLUE}{project}{RESET}")
-        print(f"    {session_title}")
+        print(f"    {title_display}")
         print(f"    {DIM}[{session_id[:8]}]{RESET}")
         print()
 
@@ -489,6 +550,7 @@ def print_sessions(grouped_sessions: Dict[str, List[Dict]]):
 def select_session_fzf(grouped_sessions: Dict[str, List[Dict]]) -> Optional[str]:
     """Use fzf for interactive session selection"""
     summaries = load_summaries()
+    session_meta = load_session_metadata()
 
     # Sort by most recent first
     sorted_sessions = sorted(
@@ -504,13 +566,7 @@ def select_session_fzf(grouped_sessions: Dict[str, List[Dict]]) -> Optional[str]
         timestamp = parse_timestamp(latest['timestamp'])
         time_ago = format_time_ago(timestamp)
 
-        # Use AI summary if available, otherwise fall back to keyword title
-        if session_id in summaries:
-            summary = summaries[session_id]
-            emoji = pick_emoji(' '.join(e.get('display', '') for e in entries))
-            session_title = f"{emoji} ★ {summary}"
-        else:
-            session_title = generate_session_title(entries)
+        session_title = resolve_session_title(session_id, entries, summaries, session_meta)
 
         # Skip sessions with no meaningful title
         if not session_title:
@@ -554,8 +610,11 @@ def select_session_fzf(grouped_sessions: Dict[str, List[Dict]]) -> Optional[str]
         else:
             time_color = '\033[2;37m' # dim white = older
 
-        # Color the ★ gold on AI-summarized sessions
-        if '★' in session_title:
+        # Apply session color or default styling
+        session_color = get_session_color(session_id, session_meta)
+        if session_color:
+            title_str = f"{session_color}{session_title}{'\033[0m'}"
+        elif '★' in session_title:
             title_str = session_title.replace('★', '\033[93m★\033[0m', 1)
         else:
             title_str = session_title
@@ -581,7 +640,7 @@ def select_session_fzf(grouped_sessions: Dict[str, List[Dict]]) -> Optional[str]
         return None
 
     # Write TSV cache for the search helper: display \t session_id \t full_content
-    tsv_file = Path.home() / '.claude' / 'csf-sessions.tsv'
+    tsv_file = CLAUDE_DIR / 'csf-sessions.tsv'
     with open(tsv_file, 'w') as f:
         f.write('\n'.join(fzf_input))
 
