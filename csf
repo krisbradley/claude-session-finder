@@ -597,7 +597,9 @@ def select_session_fzf(grouped_sessions: Dict[str, List[Dict]]) -> Optional[str]
         except (ValueError, AttributeError):
             pass
 
-        if not session_title or len(session_title.strip()) < 15:
+        meta = session_meta.get(session_id, {})
+        has_user_name = bool(meta.get('name'))
+        if not session_title or (not has_user_name and len(session_title.strip()) < 15):
             continue
 
         # Color the time based on recency
