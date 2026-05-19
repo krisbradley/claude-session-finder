@@ -48,27 +48,50 @@ COLOR_ANSI = {
 
 
 def load_session_metadata() -> Dict[str, Dict]:
-    """Load name/color metadata from sessions/*.json, keyed by sessionId."""
+    """Load name/color metadata from project JSONL files and sessions/*.json."""
     meta = {}
-    if not SESSIONS_DIR.exists():
-        return meta
-    for f in SESSIONS_DIR.glob('*.json'):
-        try:
-            for line in f.read_text().splitlines():
-                line = line.strip()
-                if not line:
+
+    # Primary source: project JSONL files contain custom-title entries
+    projects_dir = CLAUDE_DIR / 'projects'
+    if projects_dir.exists():
+        for proj_dir in projects_dir.iterdir():
+            if not proj_dir.is_dir():
+                continue
+            for f in proj_dir.glob('*.jsonl'):
+                sid = f.stem
+                try:
+                    for line in f.open():
+                        if '"custom-title"' not in line and '"custom-color"' not in line:
+                            continue
+                        data = json.loads(line)
+                        entry_type = data.get('type', '')
+                        if entry_type == 'custom-title' and data.get('customTitle'):
+                            meta.setdefault(sid, {})['name'] = data['customTitle']
+                        elif entry_type == 'custom-color' and data.get('customColor'):
+                            meta.setdefault(sid, {})['color'] = data['customColor']
+                except Exception:
                     continue
-                data = json.loads(line)
-                sid = data.get('sessionId')
-                if sid:
-                    existing = meta.get(sid, {})
-                    if data.get('name'):
+
+    # Fallback: sessions/*.json (ephemeral, per-process)
+    if SESSIONS_DIR.exists():
+        for f in SESSIONS_DIR.glob('*.json'):
+            try:
+                for line in f.read_text().splitlines():
+                    line = line.strip()
+                    if not line:
+                        continue
+                    data = json.loads(line)
+                    sid = data.get('sessionId')
+                    if not sid:
+                        continue
+                    existing = meta.setdefault(sid, {})
+                    if data.get('name') and 'name' not in existing:
                         existing['name'] = data['name']
-                    if data.get('color'):
+                    if data.get('color') and 'color' not in existing:
                         existing['color'] = data['color']
-                    meta[sid] = existing
-        except Exception:
-            continue
+            except Exception:
+                continue
+
     return meta
 
 
