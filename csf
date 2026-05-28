@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Claude Code Session Manager
-Interactive browser for Claude Code sessions with summaries
+Interactive browser for Claude Code sessions
 """
 
 import argparse
@@ -28,7 +28,6 @@ MAGENTA = '\033[35m'
 CLAUDE_DIR = Path(os.environ.get('CLAUDE_CONFIG_DIR', Path.home() / '.claude'))
 HISTORY_FILE = CLAUDE_DIR / 'history.jsonl'
 DEBUG_DIR = CLAUDE_DIR / 'debug'
-SUMMARIES_FILE = CLAUDE_DIR / 'csf-summaries.json'
 
 
 SESSIONS_DIR = CLAUDE_DIR / 'sessions'
@@ -48,10 +47,10 @@ COLOR_ANSI = {
 
 
 def load_session_metadata() -> Dict[str, Dict]:
-    """Load name/color metadata from project JSONL files and sessions/*.json."""
+    """Load name/color/ai-title metadata from project JSONL files and sessions/*.json."""
     meta = {}
+    markers = ('"custom-title"', '"agent-color"', '"ai-title"')
 
-    # Primary source: project JSONL files contain custom-title entries
     projects_dir = CLAUDE_DIR / 'projects'
     if projects_dir.exists():
         for proj_dir in projects_dir.iterdir():
@@ -61,7 +60,7 @@ def load_session_metadata() -> Dict[str, Dict]:
                 sid = f.stem
                 try:
                     for line in f.open():
-                        if '"custom-title"' not in line and '"agent-color"' not in line:
+                        if not any(m in line for m in markers):
                             continue
                         data = json.loads(line)
                         entry_type = data.get('type', '')
@@ -69,10 +68,11 @@ def load_session_metadata() -> Dict[str, Dict]:
                             meta.setdefault(sid, {})['name'] = data['customTitle']
                         elif entry_type == 'agent-color' and data.get('agentColor'):
                             meta.setdefault(sid, {})['color'] = data['agentColor']
+                        elif entry_type == 'ai-title' and data.get('aiTitle'):
+                            meta.setdefault(sid, {})['ai_title'] = data['aiTitle']
                 except Exception:
                     continue
 
-    # Fallback: sessions/*.json (ephemeral, per-process)
     if SESSIONS_DIR.exists():
         for f in SESSIONS_DIR.glob('*.json'):
             try:
@@ -94,16 +94,6 @@ def load_session_metadata() -> Dict[str, Dict]:
 
     return meta
 
-
-def load_summaries() -> Dict[str, str]:
-    """Load cached AI summaries keyed by session_id."""
-    if not SUMMARIES_FILE.exists():
-        return {}
-    try:
-        data = json.loads(SUMMARIES_FILE.read_text())
-        return {sid: v['summary'] for sid, v in data.items() if v.get('summary')}
-    except Exception:
-        return {}
 
 
 def parse_timestamp(ts: int) -> datetime:
@@ -488,18 +478,18 @@ def group_sessions_by_id(sessions: List[Dict], min_messages: int = 2) -> Dict[st
     return filtered
 
 
-def resolve_session_title(session_id: str, entries: List[Dict], summaries: Dict, session_meta: Dict) -> Optional[str]:
-    """Resolve a session's display title: user name > AI summary > generated."""
+def resolve_session_title(session_id: str, entries: List[Dict], session_meta: Dict) -> Optional[str]:
+    """Resolve a session's display title: user name > ai-title > generated."""
     meta = session_meta.get(session_id, {})
     user_name = meta.get('name')
+    ai_title = meta.get('ai_title')
 
     if user_name:
         emoji = pick_emoji(' '.join(e.get('display', '') for e in entries))
         return f"{emoji} {user_name}"
-    elif session_id in summaries:
-        summary = summaries[session_id]
-        emoji = pick_emoji(' '.join(e.get('display', '') for e in entries))
-        return f"{emoji} ★ {summary}"
+    elif ai_title:
+        emoji = pick_emoji(ai_title)
+        return f"{emoji} ★ {ai_title}"
     else:
         return generate_session_title(entries)
 
@@ -513,7 +503,6 @@ def get_session_color(session_id: str, session_meta: Dict) -> Optional[str]:
 
 def print_sessions(grouped_sessions: Dict[str, List[Dict]]):
     """Print formatted list of sessions"""
-    summaries = load_summaries()
     session_meta = load_session_metadata()
 
     # Sort by most recent first
@@ -541,7 +530,7 @@ def print_sessions(grouped_sessions: Dict[str, List[Dict]]):
         except (ValueError, AttributeError):
             pass
 
-        session_title = resolve_session_title(session_id, entries, summaries, session_meta)
+        session_title = resolve_session_title(session_id, entries, session_meta)
 
         # Skip sessions with no meaningful title
         if not session_title:
@@ -572,7 +561,6 @@ def print_sessions(grouped_sessions: Dict[str, List[Dict]]):
 
 def select_session_fzf(grouped_sessions: Dict[str, List[Dict]]) -> Optional[str]:
     """Use fzf for interactive session selection"""
-    summaries = load_summaries()
     session_meta = load_session_metadata()
 
     # Sort by most recent first
@@ -589,7 +577,7 @@ def select_session_fzf(grouped_sessions: Dict[str, List[Dict]]) -> Optional[str]
         timestamp = parse_timestamp(latest['timestamp'])
         time_ago = format_time_ago(timestamp)
 
-        session_title = resolve_session_title(session_id, entries, summaries, session_meta)
+        session_title = resolve_session_title(session_id, entries, session_meta)
 
         # Skip sessions with no meaningful title
         if not session_title:
@@ -790,13 +778,9 @@ def show_stats(grouped: Dict[str, List[Dict]]):
         project_counts[project] += 1
 
     # Emoji type breakdown
-    summaries = load_summaries()
     type_counts = defaultdict(int)
     for sid, entries in grouped.items():
-        if sid in summaries:
-            text = ' '.join(e.get('display', '') for e in entries)
-        else:
-            text = ' '.join(e.get('display', '') for e in entries[:5])
+        text = ' '.join(e.get('display', '') for e in entries[:5])
         emoji = pick_emoji(text)
         type_counts[emoji] += 1
 
