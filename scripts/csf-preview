@@ -98,6 +98,9 @@ def main():
     end_time = parse_timestamp(entries[-1]['timestamp'])
     duration = end_time - start_time
     project = entries[-1].get('project', 'Unknown')
+    home = str(Path.home())
+    if project.startswith(home):
+        project = '~' + project[len(home):]
 
     # Print header
     title = load_ai_title(session_id)

@@ -671,7 +671,7 @@ def select_session_fzf(grouped_sessions: Dict[str, List[Dict]]) -> Optional[str]
                 '--border-label', '\033[1;38;2;187;154;247m ✦ \033[38;2;192;202;245mClaude Session Finder\033[1;38;2;187;154;247m ✦ \033[0m',
                 '--list-label', ' enter open  ^d delete  ^e export  ^y copy id  ^p project ',
                 '--list-label-pos', '-1',
-                '--header', 'time│   # │ description',
+                '--header', f'time\033[2m│\033[0m   # \033[2m│\033[0m description',
                 '--prompt', '  ',
                 '--pointer', '❯',
                 '--marker', '●',
@@ -861,6 +861,7 @@ def select_by_project(grouped: Dict[str, List[Dict]]):
 
 def main():
     parser = argparse.ArgumentParser(description='Browse and resume Claude Code sessions')
+    parser.add_argument('query', nargs='*', help='Search and open the top matching session')
     parser.add_argument('--stats', action='store_true', help='Show session statistics')
     parser.add_argument('--projects', action='store_true', help='Browse sessions by project')
     parser.add_argument('--today', action='store_true', help='Show only today\'s sessions')
@@ -897,6 +898,23 @@ def main():
 
     if args.projects:
         select_by_project(grouped)
+        return
+
+    if args.query:
+        query = ' '.join(args.query).lower()
+        session_meta = load_session_metadata()
+        sorted_sessions = sorted(
+            grouped.items(),
+            key=lambda x: max(s['timestamp'] for s in x[1]),
+            reverse=True
+        )
+        for session_id, entries in sorted_sessions:
+            all_text = ' '.join(e.get('display', '') for e in entries).lower()
+            title = resolve_session_title(session_id, entries, session_meta) or ''
+            if query in all_text or query in title.lower():
+                open_session(session_id, entries)
+                return
+        print(f"{YELLOW}No sessions matching '{' '.join(args.query)}'.{RESET}")
         return
 
     fzf_available = subprocess.run(['which', 'fzf'], capture_output=True).returncode == 0
