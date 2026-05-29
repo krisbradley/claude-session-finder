@@ -4,17 +4,17 @@
 
 ### Claude Session Finder
 
-browse &nbsp;·&nbsp; search &nbsp;·&nbsp; resume
+browse &nbsp;&middot;&nbsp; search &nbsp;&middot;&nbsp; resume
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![macOS](https://img.shields.io/badge/macOS-only-lightgrey?logo=apple)](README.md)
 [![requires fzf](https://img.shields.io/badge/requires-fzf-orange)](https://github.com/junegunn/fzf)
 
 An interactive terminal browser for your [Claude Code](https://claude.ai/code) sessions —
-fuzzy search, rich previews, one-key resume, and auto-generated AI summaries.  Just a tool to find the session you're looking for, renders them all from your local session storage, launches it with `claude --resume [SESSION_ID]`
+fuzzy search, rich previews, and one-key resume. Finds the session you're looking for
+from your local session storage and launches it with `claude --resume`.
 
-
-![Demo](demo.gif)
+<img src="demo.gif?v=4" alt="Demo" width="100%">
 
 </div>
 
@@ -23,12 +23,13 @@ fuzzy search, rich previews, one-key resume, and auto-generated AI summaries.  J
 ## Features
 
 ```
-  ⚡  Instant fuzzy search  — titles, projects, and full message content
-  🔍  Rich session previews — summary, duration, project, conversation snippets
-  ↩   One-key resume       — Enter jumps straight into claude --resume
-  ✨  Auto-summarize        — extractive NLP summaries, no model download
-  🗂   CLI filter modes      — --today, --week, --projects, --stats
-  🗑   Session management   — delete, export to Markdown, copy ID
+  Instant fuzzy search  — titles, projects, and full message content
+  Rich session previews — project, duration, conversation snippets
+  One-key resume        — Enter jumps straight into claude --resume
+  Quick search          — csf <word> opens the top match directly
+  Named sessions        — shows /rename titles and /color highlights
+  CLI filter modes      — --today, --week, --projects, --stats
+  Session management    — delete, export to Markdown, copy ID
 ```
 
 ---
@@ -46,33 +47,8 @@ The formula installs all dependencies automatically:
 |-----------|---------|
 | `fzf` | Interactive fuzzy finder UI |
 | `python3` | Helper scripts |
-| `sumy` + `numpy` + `nltk` | Extractive AI summarization (isolated venv) |
-
-> **Note:** `nltk` downloads ~13 MB of tokenizer data on the first run of `csf-summarize`.
 
 > **macOS only.** `ctrl-y` uses `pbcopy` and `ctrl-p` uses `open`. Linux would need `xclip`/`xdg-open`.
-
----
-
-## Setup: Auto-Summarize Hook
-
-After installing, add a Stop hook so Claude Code automatically summarizes each session when it ends:
-
-```json
-// ~/.claude/settings.json
-{
-  "hooks": {
-    "Stop": [
-      {
-        "matcher": "",
-        "hooks": [{ "type": "command", "command": "csf-hook" }]
-      }
-    ]
-  }
-}
-```
-
-`csf-summarize` runs silently in the background after each session and caches results in `~/.claude/csf-summaries.json`.
 
 ---
 
@@ -95,6 +71,13 @@ csf
 | `ctrl-p` | Open project folder in Finder |
 | `ESC` | Exit |
 
+### Quick search
+
+```bash
+csf docker       # opens the most recent session matching "docker"
+csf "cash register"  # quotes for multi-word searches
+```
+
 ### Filter modes
 
 ```bash
@@ -102,13 +85,6 @@ csf --stats       # total sessions, activity this week, top projects
 csf --projects    # browse sessions grouped by project
 csf --today       # sessions from today only
 csf --week        # sessions from the past 7 days
-```
-
-### Summarization
-
-```bash
-csf-summarize        # summarize new or changed sessions
-csf-summarize --all  # regenerate all summaries from scratch
 ```
 
 ---
@@ -128,25 +104,34 @@ Claude Code appends a line to `~/.claude/history.jsonl` after each message:
 }
 ```
 
-`csf` groups entries by `sessionId`, ranks by recency, and generates a title from the first few messages using keyword extraction and filler-phrase stripping.
+`csf` groups entries by `sessionId`, ranks by recency, and shows titles from Claude's auto-generated `ai-title`, user-assigned `/rename` names, or keyword extraction from the first messages.
 
 ### Full-text search
 
 `csf` builds a TSV index at `~/.claude/csf-sessions.tsv` containing the full content of every session. When you type, fzf reloads results via `change:reload(csf-search {q})` — so search reaches every word in every message, not just titles.
 
-### AI summaries
+### Named sessions
 
-`csf-summarize` uses [sumy](https://github.com/miso-belica/sumy) with the LSA algorithm — extractive summarization, no model download, no API, no GPU. It prefers full transcripts from `~/.claude/debug/` when available, and falls back to `history.jsonl` display messages.
+Sessions named with `/rename` or colored with `/color` in Claude Code are displayed with their custom title and ANSI color. Metadata is read from `~/.claude/projects/*/SESSION_ID.jsonl`.
+
+### Configuration
+
+Set `CLAUDE_CONFIG_DIR` to use a non-default Claude installation:
+
+```bash
+CLAUDE_CONFIG_DIR=~/my-claude csf
+```
 
 ### File layout
 
 ```
 ~/.claude/
-├── history.jsonl         ← written by Claude Code
-├── csf-sessions.tsv      ← full-text search index (built by csf)
-├── csf-summaries.json    ← cached summaries (built by csf-summarize)
+├── history.jsonl         <- written by Claude Code
+├── csf-sessions.tsv      <- full-text search index (built by csf)
+├── projects/
+│   └── */SESSION_ID.jsonl <- session metadata (ai-title, rename, color)
 └── debug/
-    └── <session-id>.txt  ← full transcripts (written by Claude, if enabled)
+    └── <session-id>.txt  <- full transcripts (if debug enabled)
 ```
 
 ---
@@ -156,41 +141,30 @@ Claude Code appends a line to `~/.claude/history.jsonl` after each message:
 | Key | Script | What it does |
 |-----|--------|-------------|
 | `Enter` | `csf` | `claude --resume <session-id>` |
-| `ctrl-d` | `csf-delete` | Remove from history, summaries, and search index |
+| `ctrl-d` | `csf-delete` | Remove from history and search index |
 | `ctrl-y` | inline | `echo <id> \| pbcopy` |
 | `ctrl-e` | `csf-export` | Write Markdown to `~/Desktop/` and open |
 | `ctrl-p` | inline | `open <project-path>` in Finder |
 
 ---
 
-## Manual Install (Development)
+## Manual Install
 
 ```bash
-git clone https://github.com/kristopherbradley/claude-session-finder
+git clone https://github.com/krisbradley/claude-session-finder
 cd claude-session-finder
+./install.sh
+```
 
-# Copy scripts to ~/.local/bin
+Or manually:
+
+```bash
 mkdir -p ~/.local/bin
-cp csf ~/.local/bin/csf && chmod +x ~/.local/bin/csf
-
-for script in scripts/csf-delete scripts/csf-export scripts/csf-search scripts/csf-preview scripts/csf-hook; do
-  cp "$script" ~/.local/bin/ && chmod +x ~/.local/bin/"$(basename $script)"
+ln -sf "$(pwd)/csf" ~/.local/bin/csf
+for script in scripts/csf-*; do
+  cp "$script" ~/.local/bin/ && chmod +x ~/.local/bin/"$(basename "$script")"
 done
-
-# Create a venv and install summarization deps
-python3 -m venv ~/.local/share/csf-venv
-~/.local/share/csf-venv/bin/pip install sumy numpy
-
-# Write a wrapper so csf-summarize uses the venv python
-REPO_DIR="$(pwd)"
-cat > ~/.local/bin/csf-summarize <<EOF
-#!/bin/bash
-exec "\$HOME/.local/share/csf-venv/bin/python3" "$REPO_DIR/scripts/csf-summarize" "\$@"
-EOF
-chmod +x ~/.local/bin/csf-summarize
-
 # Add ~/.local/bin to your PATH if needed
-echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
 ```
 
 ---
