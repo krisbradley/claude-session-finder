@@ -680,7 +680,7 @@ def select_session_fzf(grouped_sessions: Dict[str, List[Dict]]) -> Optional[str]
                 '--reverse',
                 '--border',
                 '--border-label', '\033[1;38;2;187;154;247m ✦ \033[38;2;192;202;245mClaude Session Finder\033[1;38;2;187;154;247m ✦ \033[0m',
-                '--header', ' ago │  #  │  session\n ↑↓ navigate   enter open   ctrl-d delete   ctrl-e export   ctrl-y copy id',
+                '--header', ' ↑↓ navigate   enter open   ctrl-d delete   ctrl-e export   ctrl-y copy id',
                 '--prompt', '  ',
                 '--pointer', '❯',
                 '--marker', '●',
