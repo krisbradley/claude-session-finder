@@ -83,9 +83,9 @@ def main():
         pass
 
     if not entries:
-        print("=" * W)
+        print("─" * W)
         print(f"SESSION: {session_id}")
-        print("=" * W)
+        print("─" * W)
         print("❌ No session data found")
         sys.exit(0)
 
@@ -101,7 +101,7 @@ def main():
 
     # Print header
     title = load_ai_title(session_id)
-    print("=" * W)
+    print("─" * W)
     if title:
         words = title.split()
         line, wrapped = [], []
@@ -115,12 +115,12 @@ def main():
             wrapped.append(' '.join(line))
         for l in wrapped:
             print(f"  {l}")
-        print("=" * W)
+        print("─" * W)
     print(f"📁 Project:   {project}")
     print(f"📅 Started:   {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"⏱️  Duration:  {format_duration(duration)}")
     print(f"💬 Messages:  {msg_count}")
-    print("=" * W)
+    print("─" * W)
     print()
 
     # Show conversation
@@ -145,7 +145,7 @@ def main():
     if remaining > 0:
         print(f"  ... +{remaining} more")
 
-    print("=" * W)
+    print("─" * W)
 
 
 if __name__ == '__main__':

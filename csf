@@ -276,8 +276,6 @@ def generate_session_title(entries: List[Dict]) -> str:
     # Combine first few messages for analysis
     combined = ' '.join(messages[:5]).lower()
 
-    emoji = pick_emoji(combined)
-
     # Identify important technical terms and proper nouns (capitalized or commonly known)
     tech_terms = ['salesforce', 'github', 'git', 'docker', 'kubernetes', 'aws', 'api', 'database',
                   'sql', 'python', 'javascript', 'typescript', 'react', 'node', 'npm', 'jira',
@@ -369,15 +367,10 @@ def generate_session_title(entries: List[Dict]) -> str:
         if title_lower == pattern or title_lower.startswith(pattern + ' ') or title_lower.startswith(pattern + ','):
             return None
 
-    # Make sure there's actual content (not just emoji)
-    title_no_emoji = title
-    for em in ['🔧', '✨', '📝', '📚', '🔍', '📦', '🧪', '📋', '🗑️', '⚙️', '🔐', '📊', '🐛', '📖', '💾', '💬']:
-        title_no_emoji = title_no_emoji.replace(em, '').strip()
-
-    if len(title_no_emoji) < 12:
+    if len(title) < 12:
         return None
 
-    return f"{emoji} {title}"
+    return title
 
 
 def parse_transcript_for_preview(content: str) -> List[str]:
@@ -485,11 +478,9 @@ def resolve_session_title(session_id: str, entries: List[Dict], session_meta: Di
     ai_title = meta.get('ai_title')
 
     if user_name:
-        emoji = pick_emoji(' '.join(e.get('display', '') for e in entries))
-        return f"{emoji} {user_name}"
+        return user_name
     elif ai_title:
-        emoji = pick_emoji(ai_title)
-        return f"{emoji} ★ {ai_title}"
+        return ai_title
     else:
         return generate_session_title(entries)
 
@@ -623,12 +614,10 @@ def select_session_fzf(grouped_sessions: Dict[str, List[Dict]]) -> Optional[str]
         else:
             time_color = '\033[2;37m' # dim white = older
 
-        # Apply session color or default styling
+        # Apply session color if set
         session_color = get_session_color(session_id, session_meta)
         if session_color:
             title_str = f"{session_color}{session_title}{'\033[0m'}"
-        elif '★' in session_title:
-            title_str = session_title.replace('★', '\033[93m★\033[0m', 1)
         else:
             title_str = session_title
 
@@ -779,13 +768,6 @@ def show_stats(grouped: Dict[str, List[Dict]]):
             pass
         project_counts[project] += 1
 
-    # Emoji type breakdown
-    type_counts = defaultdict(int)
-    for sid, entries in grouped.items():
-        text = ' '.join(e.get('display', '') for e in entries[:5])
-        emoji = pick_emoji(text)
-        type_counts[emoji] += 1
-
     w = 54
     bar_max = 20
 
@@ -814,10 +796,6 @@ def show_stats(grouped: Dict[str, List[Dict]]):
         print(f"    {BLUE}{project:<30}{RESET}  {b}  {count}")
     print()
 
-    print(f"  {BOLD}Session types:{RESET}")
-    for emoji, count in sorted(type_counts.items(), key=lambda x: -x[1]):
-        b = bar(count, total_sessions)
-        print(f"    {emoji}  {b}  {count}")
     print(f"\n{BOLD}{CYAN}{'━' * w}{RESET}\n")
 
 
