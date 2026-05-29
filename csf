@@ -107,17 +107,17 @@ def format_time_ago(dt: datetime) -> str:
     diff = now - dt
 
     if diff.days > 365:
-        return f"{diff.days // 365}y ago"
+        return f"{diff.days // 365}y"
     elif diff.days > 30:
-        return f"{diff.days // 30}mo ago"
+        return f"{diff.days // 30}mo"
     elif diff.days > 0:
-        return f"{diff.days}d ago"
+        return f"{diff.days}d"
     elif diff.seconds > 3600:
-        return f"{diff.seconds // 3600}h ago"
+        return f"{diff.seconds // 3600}h"
     elif diff.seconds > 60:
-        return f"{diff.seconds // 60}m ago"
+        return f"{diff.seconds // 60}m"
     else:
-        return "just now"
+        return "now"
 
 
 def get_session_summary(session_id: str, max_length: int = 100) -> str:
@@ -544,7 +544,7 @@ def print_sessions(grouped_sessions: Dict[str, List[Dict]]):
         # Format output
         session_color = get_session_color(session_id, session_meta)
         title_display = f"{session_color}{session_title}{RESET}" if session_color else session_title
-        print(f"{DIM}{printed:2d}.{RESET} {GREEN}{time_ago:>8}{RESET} {DIM}│{RESET} {msg_count:>3} msgs {DIM}│{RESET} {BLUE}{project}{RESET}")
+        print(f"{DIM}{printed:2d}.{RESET} {GREEN}{time_ago:>3}{RESET} {DIM}│{RESET} {msg_count:>3} {DIM}│{RESET} {BLUE}{project}{RESET}")
         print(f"    {title_display}")
         print(f"    {DIM}[{session_id[:8]}]{RESET}")
         print()
@@ -614,11 +614,11 @@ def select_session_fzf(grouped_sessions: Dict[str, List[Dict]]) -> Optional[str]
             continue
 
         # Color the time based on recency
-        if 'just now' in time_ago or 'm ago' in time_ago:
+        if time_ago in ('now',) or time_ago.endswith('m'):
             time_color = '\033[92m'   # bright green  = recent
-        elif 'h ago' in time_ago:
+        elif time_ago.endswith('h'):
             time_color = '\033[32m'   # green
-        elif 'd ago' in time_ago and int(time_ago.split('d')[0].strip()) <= 3:
+        elif time_ago.endswith('d') and int(time_ago[:-1].strip()) <= 3:
             time_color = '\033[33m'   # yellow
         else:
             time_color = '\033[2;37m' # dim white = older
@@ -637,9 +637,9 @@ def select_session_fzf(grouped_sessions: Dict[str, List[Dict]]) -> Optional[str]
         cyan = '\033[36m'
 
         display_line = (
-            f"{time_color}{time_ago:>8}{reset} "
+            f"{time_color}{time_ago:>3}{reset} "
             f"{dim}│{reset} "
-            f"{cyan}{msg_count:>3} msgs{reset} "
+            f"{cyan}{msg_count:>3}{reset} "
             f"{dim}│{reset} "
             f"{title_str}"
         )
@@ -680,7 +680,7 @@ def select_session_fzf(grouped_sessions: Dict[str, List[Dict]]) -> Optional[str]
                 '--reverse',
                 '--border',
                 '--border-label', '\033[1;38;2;187;154;247m ✦ \033[38;2;192;202;245mClaude Session Finder\033[1;38;2;187;154;247m ✦ \033[0m',
-                '--header', ' ↑↓ navigate   enter open   ctrl-d delete   ctrl-e export   ctrl-y copy id   ctrl-p open project',
+                '--header', ' ago │  #  │  session\n ↑↓ navigate   enter open   ctrl-d delete   ctrl-e export   ctrl-y copy id',
                 '--prompt', '  ',
                 '--pointer', '❯',
                 '--marker', '●',
