@@ -146,10 +146,6 @@ def main():
         print(f"  ... +{remaining} more")
 
     print("=" * W)
-    print()
-    DIM = '\033[2m'
-    R = '\033[0m'
-    print(f"{DIM}enter open  ^d delete  ^e export  ^y copy id  ^p project{R}")
 
 
 if __name__ == '__main__':
