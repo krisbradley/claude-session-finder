@@ -124,46 +124,26 @@ def main():
     print()
 
     # Show conversation
-    print("💭 CONVERSATION:")
     print("─" * W)
-    print()
-
-    # Display up to 15 messages with nice formatting
-    for i, entry in enumerate(entries[:15], 1):
+    shown = 0
+    for entry in entries[:20]:
         msg = entry.get('display', '').strip()
         if not msg:
             continue
 
-        # Timestamp
         ts = parse_timestamp(entry['timestamp'])
-        time_str = ts.strftime('%H:%M:%S')
-
-        # Truncate long messages to fit preview width
-        max_msg = W - 4
+        time_str = ts.strftime('%H:%M')
+        prefix = f" {time_str}  "
+        max_msg = W - len(prefix)
         if len(msg) > max_msg:
             msg = msg[:max_msg - 3] + "..."
 
-        # Format with numbering and timestamp
-        print(f"{i:2d}. [{time_str}]")
-        print(f"    {msg}")
-        print()
+        print(f"{prefix}{msg}")
+        shown += 1
 
-    if len(entries) > 15:
-        print(f"... and {len(entries) - 15} more messages")
-        print()
-
-    # Show last message if there are many
-    if len(entries) > 15:
-        last = entries[-1]
-        last_msg = last.get('display', '').strip()
-        if last_msg:
-            last_ts = parse_timestamp(last['timestamp'])
-            print("─" * W)
-            print(f"LATEST MESSAGE [{last_ts.strftime('%H:%M:%S')}]:")
-            if len(last_msg) > W - 4:
-                last_msg = last_msg[:W - 7] + "..."
-            print(f"    {last_msg}")
-            print()
+    remaining = len(entries) - shown
+    if remaining > 0:
+        print(f"  ... +{remaining} more")
 
     print("=" * W)
 
