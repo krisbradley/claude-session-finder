@@ -1,23 +1,44 @@
 #!/usr/bin/env python3
 """Preview script for claude-sessions fzf integration"""
 
+import os
 import sys
 import json
 from pathlib import Path
 from datetime import datetime
 
-CLAUDE_DIR = Path.home() / '.claude'
+CLAUDE_DIR = Path(os.environ.get('CLAUDE_CONFIG_DIR', Path.home() / '.claude'))
 HISTORY_FILE = CLAUDE_DIR / 'history.jsonl'
-SUMMARIES_FILE = CLAUDE_DIR / 'csf-summaries.json'
 DEBUG_DIR = CLAUDE_DIR / 'debug'
 
+W = int(os.environ.get('FZF_PREVIEW_COLUMNS', 70)) - 2
 
-def load_summary(session_id):
-    try:
-        data = json.loads(SUMMARIES_FILE.read_text())
-        return data.get(session_id, {}).get('summary')
-    except Exception:
+
+def load_ai_title(session_id):
+    projects_dir = CLAUDE_DIR / 'projects'
+    if not projects_dir.exists():
         return None
+    for proj_dir in projects_dir.iterdir():
+        if not proj_dir.is_dir():
+            continue
+        f = proj_dir / f"{session_id}.jsonl"
+        if not f.exists():
+            continue
+        title = None
+        try:
+            for line in f.open():
+                if '"ai-title"' in line:
+                    data = json.loads(line)
+                    if data.get('type') == 'ai-title' and data.get('aiTitle'):
+                        title = data['aiTitle']
+                elif '"custom-title"' in line:
+                    data = json.loads(line)
+                    if data.get('type') == 'custom-title' and data.get('customTitle'):
+                        return data['customTitle']
+        except Exception:
+            pass
+        return title
+    return None
 
 
 def parse_timestamp(ts: int) -> datetime:
@@ -62,9 +83,9 @@ def main():
         pass
 
     if not entries:
-        print("=" * 70)
+        print("=" * W)
         print(f"SESSION: {session_id}")
-        print("=" * 70)
+        print("=" * W)
         print("❌ No session data found")
         sys.exit(0)
 
@@ -79,14 +100,13 @@ def main():
     project = entries[-1].get('project', 'Unknown')
 
     # Print header
-    summary = load_summary(session_id)
-    print("=" * 70)
-    if summary:
-        # Wrap summary to fit width
-        words = summary.split()
+    title = load_ai_title(session_id)
+    print("=" * W)
+    if title:
+        words = title.split()
         line, wrapped = [], []
         for word in words:
-            if sum(len(w) + 1 for w in line) + len(word) > 68:
+            if sum(len(w) + 1 for w in line) + len(word) > W - 4:
                 wrapped.append(' '.join(line))
                 line = [word]
             else:
@@ -95,17 +115,17 @@ def main():
             wrapped.append(' '.join(line))
         for l in wrapped:
             print(f"  {l}")
-        print("=" * 70)
+        print("=" * W)
     print(f"📁 Project:   {project}")
     print(f"📅 Started:   {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"⏱️  Duration:  {format_duration(duration)}")
     print(f"💬 Messages:  {msg_count}")
-    print("=" * 70)
+    print("=" * W)
     print()
 
     # Show conversation
     print("💭 CONVERSATION:")
-    print("-" * 70)
+    print("─" * W)
     print()
 
     # Display up to 15 messages with nice formatting
@@ -118,9 +138,10 @@ def main():
         ts = parse_timestamp(entry['timestamp'])
         time_str = ts.strftime('%H:%M:%S')
 
-        # Truncate long messages
-        if len(msg) > 250:
-            msg = msg[:247] + "..."
+        # Truncate long messages to fit preview width
+        max_msg = W - 4
+        if len(msg) > max_msg:
+            msg = msg[:max_msg - 3] + "..."
 
         # Format with numbering and timestamp
         print(f"{i:2d}. [{time_str}]")
@@ -137,14 +158,14 @@ def main():
         last_msg = last.get('display', '').strip()
         if last_msg:
             last_ts = parse_timestamp(last['timestamp'])
-            print("-" * 70)
+            print("─" * W)
             print(f"LATEST MESSAGE [{last_ts.strftime('%H:%M:%S')}]:")
-            if len(last_msg) > 250:
-                last_msg = last_msg[:247] + "..."
+            if len(last_msg) > W - 4:
+                last_msg = last_msg[:W - 7] + "..."
             print(f"    {last_msg}")
             print()
 
-    print("=" * 70)
+    print("=" * W)
 
     # Check if transcript exists
     debug_file = DEBUG_DIR / f"{session_id}.txt"

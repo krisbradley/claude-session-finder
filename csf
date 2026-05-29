@@ -693,7 +693,7 @@ def select_session_fzf(grouped_sessions: Dict[str, List[Dict]]) -> Optional[str]
                 '--bind', f'ctrl-e:execute({export_script} {{2}})',
                 '--bind', f'ctrl-p:execute(open {{3}})',
                 '--preview', f'{preview_script} {{2}}',
-                '--preview-window', 'right:55%:wrap:border-left',
+                '--preview-window', 'right:55%:border-left',
                 '--ansi',
                 '--color', (
                     'fg:#c0caf5,fg+:#c0caf5,'
