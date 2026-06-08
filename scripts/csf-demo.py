@@ -12,6 +12,8 @@ M = '\033[35m'
 BR = '\033[91m'
 DW = '\033[2;37m'
 B = '\033[1m'
+PURPLE = '\033[38;5;141m'
+ORANGE = '\033[38;5;208m'
 
 COLS = 110
 ROWS = 28
@@ -20,53 +22,90 @@ RW = 59
 PW = RW - 2
 
 SESSIONS = [
-    ("now", BG,  12, "Claude session finder",               0),
-    (" 3h", G,    9, "Download audio from YouTube video",    1),
-    (" 1d", Y,   18, "Build iPad cash register app",         2),
-    (" 2d", Y,    7, "Find most recently changed files",     3),
-    (" 3d", Y,    5, "Investigate computer overheating",     4),
-    (" 5d", DW,  14, "Compress video to under 10MB",         5),
-    (" 7d", DW,   3, "Create pixel art martlet character",   6),
-    (" 9d", DW,  22, "Set up home network monitoring",       7),
+    ("now", BG,   8, "Refactor auth middleware for JWT",      0, None),
+    (" 1h", BG,  14, "Debug flaky integration tests",         1, None),
+    (" 3h", G,    6, "Add dark mode to settings page",        2, "cyan"),
+    (" 1d", Y,   22, "Migrate database to Postgres 16",       3, None),
+    (" 2d", Y,   11, "Build iPad cash register app",          4, "orange"),
+    (" 4d", Y,    9, "Set up CI/CD pipeline for monorepo",    5, None),
+    (" 1w", DW,  17, "Compress video to under 10MB",          6, None),
+    ("2w",  DW,   4, "Create pixel art character sprites",    7, "purple"),
 ]
+
+SESSION_COLORS = {
+    "cyan": '\033[36m',
+    "orange": '\033[38;5;208m',
+    "purple": '\033[38;5;141m',
+}
 
 PREVIEWS = {
     0: {
-        "title": "Implementing csf session finder tool",
-        "project": "~/dev/claude-session-finder",
-        "started": "2026-05-29 14:30",
-        "duration": "2h 15m",
-        "msgs": 12,
+        "title": "Refactor auth middleware for JWT",
+        "project": "~/dev/api-server",
+        "started": "2026-06-08 10:15",
+        "duration": "1h 45m",
+        "msgs": 8,
         "conv": [
-            ("14:30", "make a session finder for claude"),
-            ("14:32", "add fzf integration with preview"),
-            ("14:45", "support CLAUDE_CONFIG_DIR env var"),
-            ("14:52", "fix named sessions not appearing"),
-            ("15:10", "add search functionality"),
-            ("15:30", "update homebrew formula"),
+            ("10:15", "refactor the auth middleware to use JWT"),
+            ("10:20", "extract token validation into its own module"),
+            ("10:35", "add refresh token rotation"),
+            ("10:50", "write tests for token expiry edge cases"),
+            ("11:10", "update the openapi spec for new headers"),
         ],
-        "more": 6,
+        "more": 3,
     },
     1: {
-        "title": "Download and convert YouTube audio",
-        "project": "~/dev/scripts",
-        "started": "2026-05-29 11:15",
-        "duration": "45m",
-        "msgs": 9,
+        "title": "Debug flaky integration tests",
+        "project": "~/dev/api-server",
+        "started": "2026-06-08 08:30",
+        "duration": "2h 10m",
+        "msgs": 14,
         "conv": [
-            ("11:15", "download audio from this youtube vid"),
-            ("11:18", "convert it to mp3 format"),
-            ("11:22", "trim the first 30 seconds"),
-            ("11:30", "normalize the volume levels"),
+            ("08:30", "the user_signup test keeps failing on CI"),
+            ("08:35", "check if it's a race condition"),
+            ("08:50", "found it — shared db state between tests"),
+            ("09:10", "add transaction rollback per test"),
+            ("09:30", "run the full suite 5 times to confirm"),
+            ("09:45", "also fix the flaky payment_flow test"),
         ],
-        "more": 5,
+        "more": 8,
     },
     2: {
+        "title": "Add dark mode to settings page",
+        "project": "~/dev/web-app",
+        "started": "2026-06-08 06:00",
+        "duration": "55m",
+        "msgs": 6,
+        "conv": [
+            ("06:00", "add dark mode toggle to settings"),
+            ("06:10", "use css custom properties for theming"),
+            ("06:25", "persist preference in localStorage"),
+            ("06:35", "respect prefers-color-scheme default"),
+        ],
+        "more": 2,
+    },
+    3: {
+        "title": "Migrate database to Postgres 16",
+        "project": "~/dev/infrastructure",
+        "started": "2026-06-07 09:00",
+        "duration": "5h 20m",
+        "msgs": 22,
+        "conv": [
+            ("09:00", "plan the postgres 14 to 16 migration"),
+            ("09:20", "set up pg_upgrade with --link mode"),
+            ("09:45", "test migration on staging snapshot"),
+            ("10:30", "fix incompatible extensions"),
+            ("11:00", "benchmark query performance after"),
+            ("11:30", "write runbook for production cutover"),
+        ],
+        "more": 16,
+    },
+    4: {
         "title": "Build cash register POS app for iPad",
         "project": "~/dev/register-app",
-        "started": "2026-05-28 09:00",
+        "started": "2026-06-06 09:00",
         "duration": "4h 30m",
-        "msgs": 18,
+        "msgs": 11,
         "conv": [
             ("09:00", "build an ipad cash register app"),
             ("09:15", "add product catalog with categories"),
@@ -75,42 +114,29 @@ PREVIEWS = {
             ("10:15", "integrate stripe payment processing"),
             ("10:45", "add receipt printing via AirPrint"),
         ],
-        "more": 12,
-    },
-    3: {
-        "title": "Find recently modified files in project",
-        "project": "~/dev/toolbox",
-        "started": "2026-05-27 16:20",
-        "duration": "25m",
-        "msgs": 7,
-        "conv": [
-            ("16:20", "find the most recently changed files"),
-            ("16:22", "sort by modification date"),
-            ("16:25", "filter to only python files"),
-            ("16:30", "show git blame for each"),
-        ],
-        "more": 3,
-    },
-    4: {
-        "title": "Diagnose CPU overheating issues",
-        "project": "~/dev/system-tools",
-        "started": "2026-05-26 13:00",
-        "duration": "1h 10m",
-        "msgs": 5,
-        "conv": [
-            ("13:00", "my computer keeps overheating"),
-            ("13:10", "check which processes use most cpu"),
-            ("13:25", "monitor temperature sensors"),
-            ("13:40", "create a fan speed control script"),
-        ],
-        "more": 1,
+        "more": 5,
     },
     5: {
+        "title": "Set up CI/CD pipeline for monorepo",
+        "project": "~/dev/platform",
+        "started": "2026-06-04 14:00",
+        "duration": "2h 15m",
+        "msgs": 9,
+        "conv": [
+            ("14:00", "set up github actions for our monorepo"),
+            ("14:15", "only build changed packages on push"),
+            ("14:30", "add caching for node_modules and turbo"),
+            ("14:50", "deploy preview envs for each PR"),
+            ("15:10", "add slack notifications for failures"),
+        ],
+        "more": 4,
+    },
+    6: {
         "title": "Compress large video file under 10MB",
         "project": "~/dev/media-tools",
-        "started": "2026-05-24 10:00",
+        "started": "2026-06-01 10:00",
         "duration": "50m",
-        "msgs": 14,
+        "msgs": 17,
         "conv": [
             ("10:00", "compress this video to under 10mb"),
             ("10:05", "try h265 encoding, lower bitrate"),
@@ -118,7 +144,7 @@ PREVIEWS = {
             ("10:25", "strip audio track to save space"),
             ("10:35", "two-pass encoding for quality"),
         ],
-        "more": 9,
+        "more": 12,
     },
 }
 
@@ -143,10 +169,10 @@ def preview_lines(preview_id):
         t = t[:PW - 6] + ".."
     lines.append(f"  {t}")
     lines.append(sep)
-    lines.append(f" Project:   {p['project']}")
-    lines.append(f" Started:   {p['started']}")
-    lines.append(f" Duration:  {p['duration']}")
-    lines.append(f" Messages:  {p['msgs']}")
+    lines.append(f"📁 Project:   {p['project']}")
+    lines.append(f"📅 Started:   {p['started']}")
+    lines.append(f"⏱️  Duration:  {p['duration']}")
+    lines.append(f"💬 Messages:  {p['msgs']}")
     lines.append(sep)
     lines.append("")
     lines.append(sep)
@@ -170,7 +196,6 @@ def draw(sel=0, query="", sessions=None, count_total=None):
         count_total = len(SESSIONS)
     count_str = f"{len(sessions)}/{count_total}"
 
-    # Determine which preview to show based on selected session's original index
     if sel < len(sessions):
         pid = sessions[sel][4]
     else:
@@ -180,16 +205,13 @@ def draw(sel=0, query="", sessions=None, count_total=None):
     bdr = D
     rst = R
 
-    # Top border with label
     label = f" {B}{M}✦{rst} {B}{M}Claude Session Finder{rst} {B}{M}✦{rst} "
     label_vlen = 26
     ld = (COLS - 2 - label_vlen) // 2
     rd = COLS - 2 - label_vlen - ld
     sys.stdout.write(f'\033[1;1H{bdr}╭{"─" * ld}{rst}{label}{bdr}{"─" * rd}╮{rst}')
 
-    # Content rows (2 through ROWS-1)
     for row in range(2, ROWS):
-        # Left pane content
         left = ""
         if row == 2:
             left = f"  {D}{count_str}{rst}"
@@ -201,24 +223,23 @@ def draw(sel=0, query="", sessions=None, count_total=None):
         elif 5 <= row <= 4 + len(sessions):
             idx = row - 5
             s = sessions[idx]
-            tago, tcol, msgs, title, _ = s
-            ptr = f"{BR}>{rst}" if idx == sel else " "
+            tago, tcol, msgs, title, _, color = s
+            ptr = f"{BR}❯{rst}" if idx == sel else " "
             max_t = LW - 15
             if len(title) > max_t:
                 title = title[:max_t - 2].rstrip() + ".."
+            if color and color in SESSION_COLORS:
+                title = f"{SESSION_COLORS[color]}{title}{rst}"
             left = f" {ptr} {tcol}{tago}{rst} {D}│{rst} {C}{msgs:>3}{rst} {D}│{rst} {title}"
         elif row == ROWS - 2:
-            left = f" {D}enter{rst} open  {D}^d{rst} del  {D}^e{rst} export  {D}^y{rst} copy id"
+            left = f" {D}enter{rst} open  {D}^d{rst} delete  {D}^e{rst} export  {D}^y{rst} copy id  {D}^p{rst} project"
 
-        # Right pane content
         pidx = row - 2
         right = plines[pidx] if pidx < len(plines) else ""
 
-        # Build the full line: │<left padded to LW>│ <right padded to RW>│
         line = f"{bdr}│{rst}{rpad(left, LW)}{bdr}│{rst} {rpad(right, RW - 1)}{bdr}│{rst}"
         sys.stdout.write(f'\033[{row};1H{line}')
 
-    # Bottom border
     ld2 = 49 - 1
     rd2 = COLS - 2 - ld2 - 1
     sys.stdout.write(f'\033[{ROWS};1H{bdr}╰{"─" * ld2}┴{"─" * rd2}╯{rst}')
@@ -234,49 +255,48 @@ def main():
     sys.stdout.write('\033[?25l')
     sys.stdout.flush()
 
-    # 1. Show initial UI
     draw(0)
     time.sleep(2.0)
 
-    # 2. Navigate down
-    for i in range(1, 5):
-        time.sleep(0.4)
+    # Navigate down through sessions
+    for i in range(1, 6):
+        time.sleep(0.35)
         draw(i)
     time.sleep(0.8)
 
-    # 3. Navigate back up
-    for i in range(3, 0, -1):
-        time.sleep(0.3)
+    # Navigate back up
+    for i in range(4, 0, -1):
+        time.sleep(0.25)
         draw(i)
     time.sleep(0.6)
 
-    # 4. Search "compress" — filter progressively
-    q = "compress"
+    # Search "postgres"
+    q = "postgres"
     for j in range(1, len(q) + 1):
-        time.sleep(0.12)
+        time.sleep(0.10)
         f = filt(q[:j]) or SESSIONS
         draw(0, q[:j], sessions=f)
-    time.sleep(1.5)
+    time.sleep(1.8)
 
-    # 5. Clear search
+    # Clear search
     for j in range(len(q) - 1, 0, -1):
-        time.sleep(0.05)
+        time.sleep(0.04)
         f = filt(q[:j]) or SESSIONS
         draw(0, q[:j], sessions=f)
     draw(0, "")
-    time.sleep(0.5)
+    time.sleep(0.4)
 
-    # 6. Search "ipad" — filter progressively
+    # Search "ipad"
     q2 = "ipad"
     for j in range(1, len(q2) + 1):
-        time.sleep(0.12)
+        time.sleep(0.10)
         f = filt(q2[:j]) or SESSIONS
         draw(0, q2[:j], sessions=f)
-    time.sleep(1.5)
+    time.sleep(1.8)
 
-    # 7. Clear and return to full list
+    # Clear and return to full list
     for j in range(len(q2) - 1, 0, -1):
-        time.sleep(0.05)
+        time.sleep(0.04)
         f = filt(q2[:j]) or SESSIONS
         draw(0, q2[:j], sessions=f)
     draw(0, "")
