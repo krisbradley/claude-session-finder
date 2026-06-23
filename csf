@@ -907,10 +907,16 @@ def main():
             key=lambda x: max(s['timestamp'] for s in x[1]),
             reverse=True
         )
+        # Priority 1: match session title
+        for session_id, entries in sorted_sessions:
+            title = resolve_session_title(session_id, entries, session_meta) or ''
+            if query in title.lower():
+                open_session(session_id, entries)
+                return
+        # Priority 2: match message content
         for session_id, entries in sorted_sessions:
             all_text = ' '.join(e.get('display', '') for e in entries).lower()
-            title = resolve_session_title(session_id, entries, session_meta) or ''
-            if query in all_text or query in title.lower():
+            if query in all_text:
                 open_session(session_id, entries)
                 return
         print(f"{YELLOW}No sessions matching '{' '.join(args.query)}'.{RESET}")
