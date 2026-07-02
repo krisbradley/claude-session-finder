@@ -4,6 +4,8 @@ Claude Code Session Manager
 Interactive browser for Claude Code sessions
 """
 
+__version__ = '0.5.0'
+
 import argparse
 import json
 import os
@@ -28,6 +30,7 @@ MAGENTA = '\033[35m'
 CLAUDE_DIR = Path(os.environ.get('CLAUDE_CONFIG_DIR', Path.home() / '.claude'))
 HISTORY_FILE = CLAUDE_DIR / 'history.jsonl'
 DEBUG_DIR = CLAUDE_DIR / 'debug'
+META_CACHE_FILE = CLAUDE_DIR / 'csf-meta-cache.json'
 
 
 SESSIONS_DIR = CLAUDE_DIR / 'sessions'
@@ -46,10 +49,38 @@ COLOR_ANSI = {
 }
 
 
-def load_session_metadata() -> Dict[str, Dict]:
-    """Load name/color/ai-title metadata from project JSONL files and sessions/*.json."""
-    meta = {}
+def _parse_project_meta(f: Path) -> Dict[str, str]:
+    """Extract name/color/ai_title from a single project JSONL file."""
     markers = ('"custom-title"', '"agent-color"', '"ai-title"')
+    entry = {}
+    for line in f.open():
+        if not any(m in line for m in markers):
+            continue
+        data = json.loads(line)
+        entry_type = data.get('type', '')
+        if entry_type == 'custom-title' and data.get('customTitle'):
+            entry['name'] = data['customTitle']
+        elif entry_type == 'agent-color' and data.get('agentColor'):
+            entry['color'] = data['agentColor']
+        elif entry_type == 'ai-title' and data.get('aiTitle'):
+            entry['ai_title'] = data['aiTitle']
+    return entry
+
+
+def load_session_metadata() -> Dict[str, Dict]:
+    """Load name/color/ai-title metadata from project JSONL files and sessions/*.json.
+
+    Project JSONL parses are cached by mtime in csf-meta-cache.json so repeat
+    launches don't re-read every session file.
+    """
+    meta = {}
+
+    try:
+        file_cache = json.loads(META_CACHE_FILE.read_text()).get('files', {})
+    except Exception:
+        file_cache = {}
+    new_cache = {}
+    dirty = False
 
     projects_dir = CLAUDE_DIR / 'projects'
     if projects_dir.exists():
@@ -58,20 +89,26 @@ def load_session_metadata() -> Dict[str, Dict]:
                 continue
             for f in proj_dir.glob('*.jsonl'):
                 sid = f.stem
+                key = str(f)
                 try:
-                    for line in f.open():
-                        if not any(m in line for m in markers):
-                            continue
-                        data = json.loads(line)
-                        entry_type = data.get('type', '')
-                        if entry_type == 'custom-title' and data.get('customTitle'):
-                            meta.setdefault(sid, {})['name'] = data['customTitle']
-                        elif entry_type == 'agent-color' and data.get('agentColor'):
-                            meta.setdefault(sid, {})['color'] = data['agentColor']
-                        elif entry_type == 'ai-title' and data.get('aiTitle'):
-                            meta.setdefault(sid, {})['ai_title'] = data['aiTitle']
+                    mtime = f.stat().st_mtime
+                    cached = file_cache.get(key)
+                    if cached is not None and cached.get('mtime') == mtime:
+                        entry = cached.get('meta', {})
+                    else:
+                        entry = _parse_project_meta(f)
+                        dirty = True
+                    new_cache[key] = {'mtime': mtime, 'meta': entry}
+                    if entry:
+                        meta.setdefault(sid, {}).update(entry)
                 except Exception:
                     continue
+
+    if dirty or set(new_cache) != set(file_cache):
+        try:
+            META_CACHE_FILE.write_text(json.dumps({'files': new_cache}))
+        except Exception:
+            pass
 
     if SESSIONS_DIR.exists():
         for f in SESSIONS_DIR.glob('*.json'):
@@ -215,34 +252,6 @@ def format_duration(delta) -> str:
         days = total_seconds // 86400
         hours = (total_seconds % 86400) // 3600
         return f"{days}d {hours}h"
-
-
-KEYWORDS = {
-    '🔧': ['fix', 'bug', 'error', 'issue', 'broken', 'debug', 'problem', 'troubleshoot'],
-    '✨': ['create', 'add', 'new', 'make', 'build', 'implement', 'develop', 'write'],
-    '📝': ['update', 'modify', 'change', 'refactor', 'improve', 'edit', 'rewrite'],
-    '📚': ['help', 'how', 'explain', 'what', 'understand', 'show', 'tell', 'learn'],
-    '🔍': ['search', 'find', 'look', 'where', 'locate'],
-    '📦': ['deploy', 'release', 'publish', 'push', 'merge'],
-    '🧪': ['test', 'testing', 'spec', 'unit'],
-    '📋': ['list', 'show', 'display', 'get', 'fetch', 'view'],
-    '🗑️': ['delete', 'remove', 'clean', 'cleanup'],
-    '⚙️': ['config', 'setup', 'configure', 'install', 'settings'],
-    '🔐': ['auth', 'login', 'permission', 'access', 'credential', 'secret', 'token'],
-    '📊': ['data', 'query', 'database', 'sql', 'snowflake', 'salesforce'],
-    '🐛': ['exception', 'crash', 'failure', 'failed', 'abort'],
-    '📖': ['read', 'review', 'check', 'analyze', 'examine'],
-    '💾': ['save', 'commit', 'store', 'backup'],
-}
-
-
-def pick_emoji(text: str) -> str:
-    """Pick an emoji based on keyword presence in text."""
-    lowered = text.lower()
-    for icon, words in KEYWORDS.items():
-        if any(word in lowered for word in words):
-            return icon
-    return '💬'
 
 
 def generate_session_title(entries: List[Dict]) -> str:
@@ -550,7 +559,7 @@ def print_sessions(grouped_sessions: Dict[str, List[Dict]]):
     return valid_sessions
 
 
-def select_session_fzf(grouped_sessions: Dict[str, List[Dict]]) -> Optional[str]:
+def select_session_fzf(grouped_sessions: Dict[str, List[Dict]], initial_query: str = '') -> Optional[str]:
     """Use fzf for interactive session selection"""
     session_meta = load_session_metadata()
 
@@ -632,8 +641,11 @@ def select_session_fzf(grouped_sessions: Dict[str, List[Dict]]) -> Optional[str]
             f"{dim}│{reset} "
             f"{title_str}"
         )
-        # TSV row: display \t session_id \t project \t full_content
-        fzf_input.append(f"{display_line}\t{session_id}\t{project}\t{all_messages}")
+        # Plain title (no ANSI) so the search helper can match against it
+        title_plain = session_title.replace('\t', ' ').replace('\n', ' ')
+
+        # TSV row: display \t session_id \t project \t title \t full_content
+        fzf_input.append(f"{display_line}\t{session_id}\t{project}\t{title_plain}\t{all_messages}")
 
     # Check if we have any sessions to display
     if not fzf_input:
@@ -641,7 +653,7 @@ def select_session_fzf(grouped_sessions: Dict[str, List[Dict]]) -> Optional[str]
         print(f"All sessions have been filtered out (commands only, too short, etc.)")
         return None
 
-    # Write TSV cache for the search helper: display \t session_id \t full_content
+    # Write TSV cache for the search helper: display \t session_id \t project \t title \t full_content
     tsv_file = CLAUDE_DIR / 'csf-sessions.tsv'
     with open(tsv_file, 'w') as f:
         f.write('\n'.join(fzf_input))
@@ -661,10 +673,16 @@ def select_session_fzf(grouped_sessions: Dict[str, List[Dict]]) -> Optional[str]
     preview_script = find_script('csf-preview')
     delete_script = find_script('csf-delete')
     export_script = find_script('csf-export')
+    fzf_extra = []
+    if initial_query:
+        # Pre-fill the query and apply it immediately (change: only fires on typing)
+        fzf_extra = ['--query', initial_query, '--bind', f'start:reload({search_script} {{q}})']
+
     try:
         result = subprocess.run(
             [
                 'fzf',
+                *fzf_extra,
                 '--height', '80%',
                 '--reverse',
                 '--border',
@@ -716,12 +734,13 @@ def select_session_fzf(grouped_sessions: Dict[str, List[Dict]]) -> Optional[str]
         return None
 
 
-def open_session(session_id: str, entries: List[Dict]):
+def open_session(session_id: str, entries: List[Dict], title: Optional[str] = None):
     """Open a Claude session"""
     latest = max(entries, key=lambda x: x['timestamp'])
     project = latest.get('project', os.getcwd())
 
-    print(f"\n{GREEN}Opening Claude Code session {session_id[:8]} in {project}...{RESET}\n")
+    label = f'"{title}" ({session_id[:8]})' if title else f'session {session_id[:8]}'
+    print(f"\n{GREEN}Opening {label} in {project}...{RESET}\n")
 
     try:
         os.chdir(project)
@@ -861,6 +880,7 @@ def select_by_project(grouped: Dict[str, List[Dict]]):
 def main():
     parser = argparse.ArgumentParser(description='Browse and resume Claude Code sessions')
     parser.add_argument('query', nargs='*', help='Search and open the top matching session')
+    parser.add_argument('--version', action='version', version=f'csf {__version__}')
     parser.add_argument('--stats', action='store_true', help='Show session statistics')
     parser.add_argument('--projects', action='store_true', help='Browse sessions by project')
     parser.add_argument('--today', action='store_true', help='Show only today\'s sessions')
@@ -900,26 +920,40 @@ def main():
         return
 
     if args.query:
-        query = ' '.join(args.query).lower()
+        query = ' '.join(args.query)
+        words = query.lower().split()
         session_meta = load_session_metadata()
         sorted_sessions = sorted(
             grouped.items(),
             key=lambda x: max(s['timestamp'] for s in x[1]),
             reverse=True
         )
-        # Priority 1: match session title
+
+        # Priority 1: sessions whose title matches every query word
+        title_matches = []
         for session_id, entries in sorted_sessions:
             title = resolve_session_title(session_id, entries, session_meta) or ''
-            if query in title.lower():
-                open_session(session_id, entries)
-                return
-        # Priority 2: match message content
+            if title and all(w in title.lower() for w in words):
+                title_matches.append((session_id, entries, title))
+
+        if len(title_matches) == 1:
+            session_id, entries, title = title_matches[0]
+            open_session(session_id, entries, title)
+            return
+        if len(title_matches) > 1:
+            selected_id = select_session_fzf(grouped, initial_query=query)
+            if selected_id and selected_id in grouped:
+                open_session(selected_id, grouped[selected_id])
+            return
+
+        # Priority 2: sessions whose message content matches every query word
         for session_id, entries in sorted_sessions:
             all_text = ' '.join(e.get('display', '') for e in entries).lower()
-            if query in all_text:
-                open_session(session_id, entries)
+            if all(w in all_text for w in words):
+                title = resolve_session_title(session_id, entries, session_meta)
+                open_session(session_id, entries, title)
                 return
-        print(f"{YELLOW}No sessions matching '{' '.join(args.query)}'.{RESET}")
+        print(f"{YELLOW}No sessions matching '{query}'.{RESET}")
         return
 
     fzf_available = subprocess.run(['which', 'fzf'], capture_output=True).returncode == 0

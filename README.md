@@ -74,9 +74,12 @@ csf
 ### Quick search
 
 ```bash
-csf docker       # opens the most recent session matching "docker"
-csf "cash register"  # quotes for multi-word searches
+csf docker         # opens the top session matching "docker"
+csf cash register  # multi-word: every word must match
 ```
+
+Session titles are matched first, then message content. If several titles
+match, csf opens the interactive picker pre-filtered to your query.
 
 ### Filter modes
 
@@ -85,6 +88,7 @@ csf --stats       # total sessions, activity this week, top projects
 csf --projects    # browse sessions grouped by project
 csf --today       # sessions from today only
 csf --week        # sessions from the past 7 days
+csf --version     # print installed version
 ```
 
 ---
@@ -108,7 +112,7 @@ Claude Code appends a line to `~/.claude/history.jsonl` after each message:
 
 ### Full-text search
 
-`csf` builds a TSV index at `~/.claude/csf-sessions.tsv` containing the full content of every session. When you type, fzf reloads results via `change:reload(csf-search {q})` — so search reaches every word in every message, not just titles.
+`csf` builds a TSV index at `~/.claude/csf-sessions.tsv` containing the title and full content of every session. When you type, fzf reloads results via `change:reload(csf-search {q})` — every query word must match, and sessions whose title matches rank above content-only matches.
 
 ### Named sessions
 

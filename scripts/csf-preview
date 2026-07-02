@@ -86,7 +86,7 @@ def main():
         print("─" * W)
         print(f"SESSION: {session_id}")
         print("─" * W)
-        print("❌ No session data found")
+        print("No session data found")
         sys.exit(0)
 
     # Sort by timestamp
@@ -119,10 +119,10 @@ def main():
         for l in wrapped:
             print(f"  {l}")
         print("─" * W)
-    print(f"📁 Project:   {project}")
-    print(f"📅 Started:   {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"⏱️  Duration:  {format_duration(duration)}")
-    print(f"💬 Messages:  {msg_count}")
+    print(f"  Project:   {project}")
+    print(f"  Started:   {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"  Duration:  {format_duration(duration)}")
+    print(f"  Messages:  {msg_count}")
     print("─" * W)
     print()
 
