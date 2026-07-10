@@ -571,8 +571,11 @@ def print_sessions(grouped_sessions: Dict[str, List[Dict]]):
     return valid_sessions
 
 
-def select_session_fzf(grouped_sessions: Dict[str, List[Dict]], initial_query: str = '') -> Optional[str]:
-    """Use fzf for interactive session selection"""
+def select_session_fzf(grouped_sessions: Dict[str, List[Dict]], initial_query: str = '') -> tuple:
+    """Use fzf for interactive session selection.
+
+    Returns (session_id, fork): fork is True when the user picked with ctrl-f.
+    """
     session_meta = load_session_metadata()
 
     # Sort by most recent first
@@ -663,7 +666,7 @@ def select_session_fzf(grouped_sessions: Dict[str, List[Dict]], initial_query: s
     if not fzf_input:
         print(f"\n{YELLOW}No sessions with meaningful content found.{RESET}")
         print(f"All sessions have been filtered out (commands only, too short, etc.)")
-        return None
+        return None, False
 
     # Write TSV cache for the search helper: display \t session_id \t project \t title \t full_content
     tsv_file = CLAUDE_DIR / 'csf-sessions.tsv'
@@ -699,7 +702,8 @@ def select_session_fzf(grouped_sessions: Dict[str, List[Dict]], initial_query: s
                 '--reverse',
                 '--border',
                 '--border-label', '\033[1;38;2;187;154;247m ✦ \033[38;2;192;202;245mClaude Session Finder\033[1;38;2;187;154;247m ✦ \033[0m',
-                '--list-label', ' enter open  ^d delete  ^e export  ^y copy id  ^p project ',
+                '--list-label', ' enter open  ^f fork  ^d delete  ^e export  ^y copy id  ^p project ',
+                '--expect', 'ctrl-f',
                 '--list-label-pos', '-1',
                 '--header', f'time\033[2m│\033[0m   # \033[2m│\033[0m description',
                 '--prompt', '  ',
@@ -736,30 +740,39 @@ def select_session_fzf(grouped_sessions: Dict[str, List[Dict]], initial_query: s
         )
 
         if result.returncode == 0 and result.stdout.strip():
-            parts = result.stdout.strip().split('\t')
-            return parts[1] if len(parts) > 1 else None
+            # With --expect, line 1 is the pressed key ('' for enter), line 2 the selection
+            lines = result.stdout.splitlines()
+            fork = lines[0].strip() == 'ctrl-f' if lines else False
+            selection = lines[1] if len(lines) > 1 else ''
+            parts = selection.split('\t')
+            if len(parts) > 1:
+                return parts[1], fork
     except FileNotFoundError:
         print(f"{YELLOW}fzf not found. Install with: brew install fzf{RESET}")
-        return None
     except Exception as e:
         print(f"{YELLOW}Error running fzf: {e}{RESET}")
-        return None
+    return None, False
 
 
-def open_session(session_id: str, entries: List[Dict], title: Optional[str] = None):
-    """Open a Claude session"""
+def open_session(session_id: str, entries: List[Dict], title: Optional[str] = None, fork: bool = False):
+    """Open a Claude session, optionally as a fork (new session ID, same history)"""
     latest = max(entries, key=lambda x: x['timestamp'])
     project = latest.get('project', os.getcwd())
 
+    verb = 'Forking' if fork else 'Opening'
     label = f'"{title}" ({session_id[:8]})' if title else f'session {session_id[:8]}'
-    print(f"\n{GREEN}Opening {label} in {project}...{RESET}\n")
+    print(f"\n{GREEN}{verb} {label} in {project}...{RESET}\n")
+
+    cmd = ['claude', '--resume', session_id]
+    if fork:
+        cmd.append('--fork-session')
 
     try:
         os.chdir(project)
-        subprocess.run(['claude', '--resume', session_id])
+        subprocess.run(cmd)
     except Exception as e:
         print(f"{YELLOW}Error opening session: {e}{RESET}")
-        print(f"Try running: cd {project} && claude --resume {session_id}")
+        print(f"Try running: cd {project} && {' '.join(cmd)}")
 
 
 def filter_by_date(grouped: Dict[str, List[Dict]], days: int) -> Dict[str, List[Dict]]:
@@ -893,6 +906,7 @@ def main():
     parser = argparse.ArgumentParser(description='Browse and resume Claude Code sessions')
     parser.add_argument('query', nargs='*', help='Search and open the top matching session')
     parser.add_argument('--version', action='version', version=f'csf {__version__}')
+    parser.add_argument('--last', action='store_true', help="Resume the most recent session (same as 'csf -')")
     parser.add_argument('--stats', action='store_true', help='Show session statistics')
     parser.add_argument('--projects', action='store_true', help='Browse sessions by project')
     parser.add_argument('--today', action='store_true', help='Show only today\'s sessions')
@@ -939,6 +953,13 @@ def main():
         select_by_project(grouped)
         return
 
+    if args.last or args.query == ['-']:
+        session_meta = load_session_metadata()
+        session_id, entries = max(grouped.items(), key=lambda x: max(s['timestamp'] for s in x[1]))
+        title = resolve_session_title(session_id, entries, session_meta)
+        open_session(session_id, entries, title)
+        return
+
     if args.query:
         query = ' '.join(args.query)
         words = query.lower().split()
@@ -961,9 +982,9 @@ def main():
             open_session(session_id, entries, title)
             return
         if len(title_matches) > 1:
-            selected_id = select_session_fzf(grouped, initial_query=query)
+            selected_id, fork = select_session_fzf(grouped, initial_query=query)
             if selected_id and selected_id in grouped:
-                open_session(selected_id, grouped[selected_id])
+                open_session(selected_id, grouped[selected_id], fork=fork)
             return
 
         # Priority 2: sessions whose message content matches every query word
@@ -979,9 +1000,9 @@ def main():
     fzf_available = subprocess.run(['which', 'fzf'], capture_output=True).returncode == 0
 
     if fzf_available:
-        selected_id = select_session_fzf(grouped)
+        selected_id, fork = select_session_fzf(grouped)
         if selected_id and selected_id in grouped:
-            open_session(selected_id, grouped[selected_id])
+            open_session(selected_id, grouped[selected_id], fork=fork)
     else:
         print(f"{YELLOW}Tip: Install fzf for interactive selection: brew install fzf{RESET}\n")
         sorted_sessions = print_sessions(grouped)

@@ -65,6 +65,7 @@ csf
 | Type | Full-text search across titles, projects, and messages |
 | `↑` / `↓` | Navigate sessions |
 | `Enter` | Resume session with `claude --resume` |
+| `ctrl-f` | Fork session (resume with a new session ID) |
 | `ctrl-d` | Delete session from history |
 | `ctrl-y` | Copy session ID to clipboard |
 | `ctrl-e` | Export session to Markdown on Desktop |
@@ -76,6 +77,7 @@ csf
 ```bash
 csf docker         # opens the top session matching "docker"
 csf cash register  # multi-word: every word must match
+csf -              # resume your most recent session (also: csf --last)
 ```
 
 Session titles are matched first, then message content. If several titles
