@@ -449,6 +449,18 @@ def format_preview_block(block_type: str, lines: List[str]) -> str:
     return ""
 
 
+def resumable_session_ids() -> set:
+    """Session IDs whose transcript still exists on disk (claude --resume works)."""
+    ids = set()
+    projects_dir = CLAUDE_DIR / 'projects'
+    if projects_dir.exists():
+        for proj_dir in projects_dir.iterdir():
+            if proj_dir.is_dir():
+                for f in proj_dir.glob('*.jsonl'):
+                    ids.add(f.stem)
+    return ids
+
+
 def load_sessions() -> List[Dict]:
     """Load all sessions from history.jsonl"""
     if not HISTORY_FILE.exists():
@@ -898,6 +910,14 @@ def main():
         sys.exit(1)
 
     grouped = group_sessions_by_id(sessions)
+
+    # Hide sessions whose transcript was pruned — claude --resume would fail
+    resumable = resumable_session_ids()
+    grouped = {sid: entries for sid, entries in grouped.items() if sid in resumable}
+    if not grouped:
+        print(f"{YELLOW}No resumable sessions found.{RESET}")
+        print("Session transcripts in ~/.claude/projects/ may have been cleaned up.")
+        sys.exit(1)
 
     if args.stats:
         show_stats(grouped)
